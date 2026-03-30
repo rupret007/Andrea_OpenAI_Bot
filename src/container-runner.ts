@@ -40,11 +40,7 @@ import {
 } from './container-runtime.js';
 import { OneCLI } from '@onecli-sh/sdk';
 import { validateAdditionalMounts } from './mount-security.js';
-import {
-  AgentRuntimeName,
-  RegisteredGroup,
-  RuntimeRoute,
-} from './types.js';
+import { AgentRuntimeName, RegisteredGroup, RuntimeRoute } from './types.js';
 import type { AssistantRequestPolicy } from './assistant-routing.js';
 import {
   CONTAINER_CLOSE_GRACE_PERIOD_MS,
@@ -142,7 +138,9 @@ export function sanitizeContainerArgsForLogs(args: string[]): string[] {
   return sanitized;
 }
 
-function parseStructuredContainerOutput(stdout: string): ContainerOutput | null {
+function parseStructuredContainerOutput(
+  stdout: string,
+): ContainerOutput | null {
   const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
   const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
 
@@ -452,20 +450,20 @@ function buildVolumeMounts(
       !syncMetadata &&
       Boolean(
         sourceIndexHash &&
-          cachedIndexHash &&
-          sourceIndexHash !== cachedIndexHash,
+        cachedIndexHash &&
+        sourceIndexHash !== cachedIndexHash,
       );
     const cacheMissingOrIncomplete =
       !fs.existsSync(groupAgentRunnerDir) || !cachedIndexHash;
     const cacheMatchesLastSync = Boolean(
       syncMetadata &&
-        cachedIndexHash &&
-        syncMetadata.cachedIndexHash === cachedIndexHash,
+      cachedIndexHash &&
+      syncMetadata.cachedIndexHash === cachedIndexHash,
     );
     const sourceChangedSinceLastSync = Boolean(
       syncMetadata &&
-        sourceIndexHash &&
-        syncMetadata.sourceIndexHash !== sourceIndexHash,
+      sourceIndexHash &&
+      syncMetadata.sourceIndexHash !== sourceIndexHash,
     );
     const needsCopy =
       cacheMissingOrIncomplete ||
@@ -521,7 +519,10 @@ async function buildContainerArgs(
   args.push('-e', 'CODEX_HOME=/home/node/.codex');
   args.push('-e', `AGENT_RUNTIME_DEFAULT=${AGENT_RUNTIME_DEFAULT}`);
   args.push('-e', `AGENT_RUNTIME_FALLBACK=${AGENT_RUNTIME_FALLBACK}`);
-  args.push('-e', `CODEX_LOCAL_ENABLED=${CODEX_LOCAL_ENABLED ? 'true' : 'false'}`);
+  args.push(
+    '-e',
+    `CODEX_LOCAL_ENABLED=${CODEX_LOCAL_ENABLED ? 'true' : 'false'}`,
+  );
   args.push('-e', `OPENAI_MODEL_FALLBACK=${OPENAI_MODEL_FALLBACK}`);
   args.push('-e', `NANOCLAW_CONTAINER_RUNTIME=${CONTAINER_RUNTIME_NAME}`);
   if (CODEX_LOCAL_MODEL) {

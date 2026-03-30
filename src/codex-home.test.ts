@@ -28,7 +28,9 @@ afterEach(() => {
 describe('codex-home', () => {
   it('resolves CODEX_HOME when explicitly configured', () => {
     expect(
-      resolveHostCodexHome({ CODEX_HOME: '/tmp/custom-codex-home' } as NodeJS.ProcessEnv),
+      resolveHostCodexHome({
+        CODEX_HOME: '/tmp/custom-codex-home',
+      } as NodeJS.ProcessEnv),
     ).toBe(path.resolve('/tmp/custom-codex-home'));
   });
 
@@ -53,17 +55,16 @@ describe('codex-home', () => {
     fs.writeFileSync(path.join(codexHome, 'auth.json'), '{"token":"seed"}');
     fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "gpt-5.4"');
 
-    const copied = seedCodexHomeFromHost(
-      targetDir,
-      { USERPROFILE: profileDir } as NodeJS.ProcessEnv,
-    );
+    const copied = seedCodexHomeFromHost(targetDir, {
+      USERPROFILE: profileDir,
+    } as NodeJS.ProcessEnv);
 
     expect(copied).toEqual(['auth.json', 'config.toml']);
-    expect(fs.readFileSync(path.join(targetDir, 'auth.json'), 'utf-8')).toContain(
-      '"seed"',
-    );
-    expect(fs.readFileSync(path.join(targetDir, 'config.toml'), 'utf-8')).toContain(
-      'gpt-5.4',
-    );
+    expect(
+      fs.readFileSync(path.join(targetDir, 'auth.json'), 'utf-8'),
+    ).toContain('"seed"');
+    expect(
+      fs.readFileSync(path.join(targetDir, 'config.toml'), 'utf-8'),
+    ).toContain('gpt-5.4');
   });
 });

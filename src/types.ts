@@ -79,10 +79,7 @@ export interface TaskRunLog {
   error: string | null;
 }
 
-export type AgentRuntimeName =
-  | 'codex_local'
-  | 'openai_cloud'
-  | 'claude_legacy';
+export type AgentRuntimeName = 'codex_local' | 'openai_cloud' | 'claude_legacy';
 
 export type RuntimeRoute =
   | 'local_required'

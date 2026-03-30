@@ -305,7 +305,10 @@ function formatRuntimeJobsMessage(): string {
   ].join('\n');
 }
 
-function readLatestRuntimeLog(groupFolder: string, lineLimit: number): string | null {
+function readLatestRuntimeLog(
+  groupFolder: string,
+  lineLimit: number,
+): string | null {
   const groupDir = resolveGroupFolderPath(groupFolder);
   const logsDir = path.join(groupDir, 'logs');
   if (!fs.existsSync(logsDir)) return null;
@@ -327,7 +330,10 @@ function readLatestRuntimeLog(groupFolder: string, lineLimit: number): string | 
 async function sendToChat(chatJid: string, text: string): Promise<void> {
   const channel = findChannel(channels, chatJid);
   if (!channel) {
-    logger.warn({ chatJid }, 'No channel owns JID, cannot send operator message');
+    logger.warn(
+      { chatJid },
+      'No channel owns JID, cannot send operator message',
+    );
     return;
   }
   await channel.sendMessage(chatJid, text);
@@ -464,7 +470,8 @@ async function runAgent(
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const existingThread = getAgentThread(group.folder) || agentThreads[group.folder];
+  const existingThread =
+    getAgentThread(group.folder) || agentThreads[group.folder];
   const runtimeRoute = classifyRuntimeRoute(requestPolicy, prompt);
   const preferredRuntime = selectPreferredRuntime(existingThread, runtimeRoute);
   const sessionId = shouldReuseExistingThread(existingThread, preferredRuntime)
@@ -614,8 +621,14 @@ async function handleRuntimeFollowup(
     const existingThread =
       getAgentThread(target.group.folder) || agentThreads[target.group.folder];
     const runtimeRoute = classifyRuntimeRoute(requestPolicy, prompt);
-    const preferredRuntime = selectPreferredRuntime(existingThread, runtimeRoute);
-    const sessionId = shouldReuseExistingThread(existingThread, preferredRuntime)
+    const preferredRuntime = selectPreferredRuntime(
+      existingThread,
+      runtimeRoute,
+    );
+    const sessionId = shouldReuseExistingThread(
+      existingThread,
+      preferredRuntime,
+    )
       ? existingThread.thread_id
       : sessions[target.group.folder];
     let emittedOutput = false;
@@ -634,7 +647,12 @@ async function handleRuntimeFollowup(
         requestPolicy,
       },
       (proc, containerName) =>
-        queue.registerProcess(target.jid, proc, containerName, target.group.folder),
+        queue.registerProcess(
+          target.jid,
+          proc,
+          containerName,
+          target.group.folder,
+        ),
       async (result) => {
         if (result.newSessionId) {
           persistAgentThread(
@@ -696,7 +714,10 @@ async function handleOperatorCommand(
   const commandToken = normalizeCommandToken(
     rawTrimmed.split(/\s+/)[0] || rawTrimmed,
   );
-  const decision = getCommandAccessDecision(commandToken, registeredGroups[chatJid]);
+  const decision = getCommandAccessDecision(
+    commandToken,
+    registeredGroups[chatJid],
+  );
 
   if (!decision.allowed) {
     if (decision.message) {
@@ -772,7 +793,9 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info(`Andrea runtime bot running (default trigger: ${DEFAULT_TRIGGER})`);
+  logger.info(
+    `Andrea runtime bot running (default trigger: ${DEFAULT_TRIGGER})`,
+  );
 
   while (true) {
     try {
@@ -908,9 +931,13 @@ async function main(): Promise<void> {
   }
   // Channel callbacks (shared by all channels)
   const channelOpts = {
-        onMessage: (chatJid: string, msg: NewMessage) => {
+    onMessage: (chatJid: string, msg: NewMessage) => {
       const processStoredMessage = () => {
-        if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
+        if (
+          !msg.is_from_me &&
+          !msg.is_bot_message &&
+          registeredGroups[chatJid]
+        ) {
           const cfg = loadSenderAllowlist();
           if (
             shouldDropMessage(chatJid, cfg) &&
@@ -1037,7 +1064,3 @@ if (isDirectRun) {
     process.exit(1);
   });
 }
-
-
-
-

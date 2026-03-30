@@ -8,9 +8,8 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 
 // Mock config
 vi.mock('./config.js', async () => {
-  const actual = await vi.importActual<typeof import('./config.js')>(
-    './config.js',
-  );
+  const actual =
+    await vi.importActual<typeof import('./config.js')>('./config.js');
   return {
     ...actual,
     CONTAINER_IMAGE: 'andrea-openai-agent:latest',
@@ -251,7 +250,8 @@ describe('container-runner timeout behavior', () => {
       status: 'error',
       result: null,
       runtime: 'openai_cloud',
-      error: 'openai_cloud requires OPENAI_API_KEY or a compatible gateway token.',
+      error:
+        'openai_cloud requires OPENAI_API_KEY or a compatible gateway token.',
     });
 
     await vi.advanceTimersByTimeAsync(10);

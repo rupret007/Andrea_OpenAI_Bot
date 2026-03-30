@@ -110,7 +110,6 @@ export function getCommandAccessDecision(
   return {
     allowed: false,
     reason: 'main_control_only',
-    message:
-      "That command is restricted to Andrea's main control chat.",
+    message: "That command is restricted to Andrea's main control chat.",
   };
 }

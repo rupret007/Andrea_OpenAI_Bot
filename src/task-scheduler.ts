@@ -26,11 +26,7 @@ import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { formatOutbound } from './router.js';
-import {
-  AgentThreadState,
-  RegisteredGroup,
-  ScheduledTask,
-} from './types.js';
+import { AgentThreadState, RegisteredGroup, ScheduledTask } from './types.js';
 
 /**
  * Compute the next run time for a recurring task, anchored to the

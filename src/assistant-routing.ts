@@ -134,7 +134,10 @@ function createPolicy(
 function classifyText(text: string): AssistantRequestPolicy {
   const normalized = text.trim();
   if (!normalized) {
-    return createPolicy('direct_assistant', 'empty request defaults to direct assistant');
+    return createPolicy(
+      'direct_assistant',
+      'empty request defaults to direct assistant',
+    );
   }
 
   if (/^\/(?:runtime|codex|register|status|help)\b/i.test(normalized)) {
