@@ -28,7 +28,7 @@ Legend:
 
 | Aspect | State | Notes |
 |--------|-------|-------|
-| Podman container launch, mounts, `.codex` seeding | **A**, **L** | Live validation (Mar 30, 2026): container reached Codex; structured errors on quota/limit. |
+| Podman container launch, mounts, `.codex` seeding | **A**, **L** | Live validation (Mar 30, 2026): container reached Codex; structured errors on quota/limit. Second pass same day: `validate:runtime` from Podman machine VM + portable Node 22 launched child container; honest error when Codex auth not seeded (`auth.json` / `cap_sid`). |
 | Successful assistant reply | **C** | Blocked when Codex account is rate-limited or over quota; plumbing is not the blocker. |
 | Same-thread follow-up after first success | **A**, **C** | Persistence covered in tests; live E2E follow-up needs one successful prior turn. |
 
@@ -38,7 +38,7 @@ Legend:
 
 | Aspect | State | Notes |
 |--------|-------|-------|
-| Lane selection and honest missing-credential errors | **A**, **L** | Explicit error when `OPENAI_API_KEY` / compatible token missing. |
+| Lane selection and honest missing-credential errors | **A**, **L** | Explicit error when `OPENAI_API_KEY` / compatible token missing. Re-verified Mar 30, 2026 (second pass) via `validate:runtime --runtime openai_cloud` in Podman machine + Node 22. |
 | Successful cloud completion | **C** | Requires valid OpenAI credentials and routing that allows cloud. |
 
 ---
@@ -115,9 +115,11 @@ Legend:
 
 **Has automated tests:** runtime routing, provider gating, Podman argv behavior, DB persistence for threads/jobs, operator command parsing/gating, scheduler integration, IPC auth, many failure paths.
 
-**Has real live proof (reported):** Podman image build/smoke, container launch through runner, Codex structured errors (including quota), OpenAI missing-key path, runtime validation script wiring.
+**Has real live proof (reported):** Podman image build/smoke, container launch through runner, Codex structured errors (including quota and missing Codex home auth), OpenAI missing-key path, runtime validation script wiring, full **200-message** real-world corpus dry-run (`scripts/realworld-send.mjs --dry-run`).
 
-**Blocked or conditional:** full successful Codex reply under quota; OpenAI success without key; same-thread live follow-up without prior success; live Telegram operator walkthrough.
+**Second pass (Mar 30, 2026, same day):** `npm test` **257** passed and `npm run test:runtime` **143** passed inside `podman run … node:22` with both root and `container/agent-runner` installs; `podman build -t andrea-openai-agent:latest ./container` on Windows host; `podman run … echo` smoke **Container OK**; `npm run validate:runtime` for `codex_local` and `openai_cloud` executed from **Podman machine** Linux VM (portable Node 22 tarball + `CONTAINER_RUNTIME_BIN=podman`) with structured JSON errors as expected without credentials. **Service restart** (launchd/systemd): not applicable on this dev host — no Andrea unit configured; use [OPERATIONS.md](OPERATIONS.md) where a service exists.
+
+**Blocked or conditional:** full successful Codex reply (needs host Codex auth seed and quota); OpenAI success without key; same-thread live follow-up without prior success; live Telegram operator walkthrough; optional `--send` corpus run (needs `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`, main chat only for `/runtime-*`).
 
 **Product-shape cleanup:** keep public copy Andrea-first; keep runtime details in operator/docs layers.
 
