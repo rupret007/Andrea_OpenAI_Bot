@@ -5,6 +5,8 @@ These documents describe the current Codex-first Andrea runtime in this repo.
 Current docs:
 
 - [Runtime](RUNTIME.md)
+- [Runtime reality audit](RUNTIME_AUDIT.md)
+- [Operations (restarts, services)](OPERATIONS.md)
 - [Setup And Requirements](REQUIREMENTS.md)
 - [Operator Commands](OPERATOR_COMMANDS.md)
 - [Testing And Validation](TESTING.md)

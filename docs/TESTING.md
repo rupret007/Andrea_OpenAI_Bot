@@ -9,6 +9,12 @@ Why:
 - `better-sqlite3` did not load cleanly in this environment on Node `24.x`
 - runtime-focused tests were run and passed under Node `22.22.2`
 
+### Windows note
+
+On Windows, Node `24.x` may have **no prebuilt** `better-sqlite3` binary; `npm install` can fall back to `node-gyp` and fail without **Visual Studio** “Desktop development with C++”. Prefer **Node 22.x** (matching `engines` in `package.json`) so install uses a prebuild.
+
+See also [RUNTIME_AUDIT.md](RUNTIME_AUDIT.md) and [OPERATIONS.md](OPERATIONS.md).
+
 ## Focused Runtime Suite
 
 ```powershell
@@ -79,3 +85,39 @@ Conditionally blocked:
 - successful `codex_local` reply because the Codex account hit a usage limit
 - successful `openai_cloud` reply because `OPENAI_API_KEY` was not configured
 - same-thread live follow-up because there was no successful first local turn to continue
+
+## Reality audit
+
+Subsystem classification (tests vs live vs conditional) lives in [RUNTIME_AUDIT.md](RUNTIME_AUDIT.md). Update that file whenever validation state changes.
+
+## Real-world message corpus (~200)
+
+Regenerate JSON (exactly 200 messages):
+
+```powershell
+npm run generate:realworld-corpus
+```
+
+Output: `scripts/fixtures/realworld-messages.json`.
+
+Preview without sending:
+
+```powershell
+npm run realworld:send:dry-run
+npm run realworld:send:dry-run -- --limit 10
+npm run realworld:send:dry-run -- --category operator_runtime
+```
+
+Send via Telegram (rate-limit friendly: use a large `--delay-ms` and optional `--jitter-ms`):
+
+```powershell
+$env:TELEGRAM_BOT_TOKEN = "<bot token>"
+$env:TELEGRAM_CHAT_ID = "<chat id>"
+node scripts/realworld-send.mjs --send --delay-ms 45000 --jitter-ms 15000
+```
+
+**Do not** fire 200 heavy `codex_heavy` prompts back-to-back while Codex is rate-limited. Prefer filtering by category, smaller `--limit`, or long delays. Operator commands belong in the **main control** chat only.
+
+## Service restart
+
+See [OPERATIONS.md](OPERATIONS.md) for stop/start order and smoke checks after a restart.

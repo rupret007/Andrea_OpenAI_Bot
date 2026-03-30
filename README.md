@@ -141,10 +141,14 @@ The old Claude remote-control bridge is intentionally disabled in this repo.
 
 - [Docs Index](docs/README.md)
 - [Runtime](docs/RUNTIME.md)
+- [Runtime audit](docs/RUNTIME_AUDIT.md)
+- [Operations (restarts)](docs/OPERATIONS.md)
 - [Setup And Requirements](docs/REQUIREMENTS.md)
 - [Operator Commands](docs/OPERATOR_COMMANDS.md)
 - [Testing And Validation](docs/TESTING.md)
 - [Merge Boundary](docs/MERGE_BOUNDARY.md)
+
+Stress-style chat testing (~200 scripted messages, optional Telegram sender) is documented in [docs/TESTING.md](docs/TESTING.md).
 
 ## Honest Bottom Line
 

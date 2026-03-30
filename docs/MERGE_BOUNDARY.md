@@ -37,3 +37,4 @@ These are useful here now, even if they later move or shrink:
 - standalone README/docs framing
 - direct runtime validation script
 - local standalone bot packaging metadata
+- real-world message corpus and optional Telegram sender under `scripts/` (load testing / UX validation only)
