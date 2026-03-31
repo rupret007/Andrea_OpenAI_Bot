@@ -8,6 +8,7 @@ import {
   RUNTIME_STATUS_COMMANDS,
   RUNTIME_STOP_COMMANDS,
 } from './operator-command-gate.js';
+import type { RuntimeOrchestrationService } from './runtime-orchestration.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 
 export interface RuntimeJobSnapshot {
@@ -31,6 +32,10 @@ export interface RuntimeCommandDependencies {
   getRuntimeJobs(): RuntimeJobSnapshot[];
   findGroupByFolder(folder: string): ResolvedRuntimeGroup | null;
   requestStop(groupJid: string): boolean;
+  orchestration?: Pick<
+    RuntimeOrchestrationService,
+    'followUp' | 'getJobLogs' | 'listJobs' | 'stopJob'
+  >;
   queueFollowup(args: {
     operatorChatJid: string;
     targetGroupJid: string;
@@ -121,12 +126,23 @@ export async function dispatchRuntimeCommand(
       return true;
     }
 
-    await deps.queueFollowup({
-      operatorChatJid,
-      targetGroupJid: target.jid,
-      targetFolder: target.folder,
-      prompt: followupText,
-    });
+    if (deps.orchestration) {
+      await deps.orchestration.followUp({
+        groupFolder: target.folder,
+        prompt: followupText,
+        source: {
+          system: 'operator_command',
+          actorRef: operatorChatJid,
+        },
+      });
+    } else {
+      await deps.queueFollowup({
+        operatorChatJid,
+        targetGroupJid: target.jid,
+        targetFolder: target.folder,
+        prompt: followupText,
+      });
+    }
     await deps.sendToChat(
       operatorChatJid,
       `Queued runtime follow-up for ${targetFolder}.`,
@@ -154,7 +170,28 @@ export async function dispatchRuntimeCommand(
       return true;
     }
 
-    const stopped = deps.requestStop(target.jid);
+    let stopped = false;
+    if (deps.orchestration) {
+      const activeJob = deps.orchestration
+        .listJobs({ groupFolder: target.folder, limit: 20 })
+        .jobs.find((job) => job.status === 'running');
+
+      if (activeJob) {
+        const stopResult = await deps.orchestration.stopJob({
+          jobId: activeJob.jobId,
+          source: {
+            system: 'operator_command',
+            actorRef: operatorChatJid,
+          },
+        });
+        stopped = stopResult.liveStopAccepted || stopResult.job.stopRequested;
+      }
+    }
+
+    if (!stopped) {
+      stopped = deps.requestStop(target.jid);
+    }
+
     await deps.sendToChat(
       operatorChatJid,
       stopped
@@ -189,7 +226,27 @@ export async function dispatchRuntimeCommand(
       return true;
     }
 
-    const logText = readLatestRuntimeLog(target.folder, lineLimit);
+    let logText: string | null = null;
+    if (deps.orchestration) {
+      const latestJob = deps.orchestration
+        .listJobs({ groupFolder: target.folder, limit: 20 })
+        .jobs.find((job) => Boolean(job.logFile));
+
+      if (latestJob) {
+        const jobLogs = deps.orchestration.getJobLogs({
+          jobId: latestJob.jobId,
+          lines: lineLimit,
+        });
+        logText = jobLogs.logText
+          ? `Runtime job ${latestJob.jobId}\n${jobLogs.logText}`
+          : null;
+      }
+    }
+
+    if (!logText) {
+      logText = readLatestRuntimeLog(target.folder, lineLimit);
+    }
+
     await deps.sendToChat(
       operatorChatJid,
       logText || `No runtime logs found yet for ${targetFolder}.`,

@@ -75,6 +75,7 @@ export interface ContainerOutput {
   newSessionId?: string;
   runtime?: AgentRuntimeName;
   error?: string;
+  logFile?: string;
 }
 
 interface VolumeMount {
@@ -852,7 +853,10 @@ export async function runContainerAgent(
               },
               'Container timed out after structured output in one-shot mode',
             );
-            resolve(structuredOutputOnTimeout);
+            resolve({
+              ...structuredOutputOnTimeout,
+              logFile: timeoutLog,
+            });
             return;
           }
         }
@@ -870,6 +874,7 @@ export async function runContainerAgent(
               status: 'success',
               result: null,
               newSessionId,
+              logFile: timeoutLog,
             });
           });
           return;
@@ -894,6 +899,7 @@ export async function runContainerAgent(
             error: runtimeOutputHint
               ? `Container produced no structured output within ${initialOutputTimeoutMs}ms. ${runtimeOutputHint}`
               : `Container produced no structured output within ${initialOutputTimeoutMs}ms. Check credentials or runtime setup.`,
+            logFile: timeoutLog,
           });
           return;
         }
@@ -916,6 +922,7 @@ export async function runContainerAgent(
           error: runtimeOutputHint
             ? `Container timed out after ${configTimeout}ms. ${runtimeOutputHint}`
             : `Container timed out after ${configTimeout}ms`,
+          logFile: timeoutLog,
         });
         return;
       }
@@ -1002,7 +1009,10 @@ export async function runContainerAgent(
             },
             'Container exited non-zero but returned structured output',
           );
-          resolve(structuredOutput);
+          resolve({
+            ...structuredOutput,
+            logFile,
+          });
           return;
         }
 
@@ -1022,6 +1032,7 @@ export async function runContainerAgent(
           status: 'error',
           result: null,
           error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
+          logFile,
         });
         return;
       }
@@ -1037,6 +1048,7 @@ export async function runContainerAgent(
             status: 'success',
             result: null,
             newSessionId,
+            logFile,
           });
         });
         return;
@@ -1058,7 +1070,10 @@ export async function runContainerAgent(
           'Container completed',
         );
 
-        resolve(structuredOutput);
+        resolve({
+          ...structuredOutput,
+          logFile,
+        });
       } catch (err) {
         logger.error(
           {
@@ -1074,6 +1089,7 @@ export async function runContainerAgent(
           status: 'error',
           result: null,
           error: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
+          logFile,
         });
       }
     });

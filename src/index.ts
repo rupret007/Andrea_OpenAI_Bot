@@ -1,14 +1,12 @@
+import type { ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
-  classifyRuntimeRoute,
   formatAgentRuntimeStatusMessage,
   getAgentRuntimeStatusSnapshot,
-  selectPreferredRuntime,
-  shouldReuseExistingThread,
 } from './agent-runtime.js';
 import { classifyAssistantRequest } from './assistant-routing.js';
 import {
@@ -68,6 +66,10 @@ import {
   normalizeCommandToken,
 } from './operator-command-gate.js';
 import { dispatchRuntimeCommand } from './runtime-commands.js';
+import {
+  createRuntimeOrchestrationService,
+  executeRuntimeTurn,
+} from './runtime-orchestration.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -279,6 +281,53 @@ function getRegisteredGroupByFolder(
   return { jid: match[0], group: match[1] };
 }
 
+function getRuntimeServiceDependencies() {
+  return {
+    assistantName: ASSISTANT_NAME,
+    enqueueJob(groupJid: string, jobId: string, fn: () => Promise<void>) {
+      queue.enqueueTask(groupJid, jobId, fn);
+    },
+    getAvailableGroups,
+    getRegisteredGroupJids() {
+      return new Set(Object.keys(registeredGroups));
+    },
+    getRuntimeJobs() {
+      return queue.getRuntimeJobs();
+    },
+    getSession(groupFolder: string) {
+      return sessions[groupFolder];
+    },
+    getStoredThread(groupFolder: string) {
+      return getAgentThread(groupFolder) || agentThreads[groupFolder];
+    },
+    notifyIdle(groupJid: string) {
+      queue.notifyIdle(groupJid);
+    },
+    persistAgentThread,
+    refreshTaskSnapshots,
+    registerProcess(
+      groupJid: string,
+      proc: ChildProcess,
+      containerName: string,
+      groupFolder?: string,
+    ) {
+      queue.registerProcess(groupJid, proc, containerName, groupFolder);
+    },
+    requestStop(groupJid: string) {
+      return queue.requestStop(groupJid);
+    },
+    resolveGroupByFolder(folder: string) {
+      return getRegisteredGroupByFolder(folder);
+    },
+    runContainerAgent,
+    writeGroupsSnapshot,
+  };
+}
+
+const orchestrationService = createRuntimeOrchestrationService(
+  getRuntimeServiceDependencies(),
+);
+
 async function sendToChat(chatJid: string, text: string): Promise<void> {
   const channel = findChannel(channels, chatJid);
   if (!channel) {
@@ -421,64 +470,18 @@ async function runAgent(
   requestPolicy: ReturnType<typeof classifyAssistantRequest>,
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
-  const isMain = group.isMain === true;
-  const existingThread =
-    getAgentThread(group.folder) || agentThreads[group.folder];
-  const runtimeRoute = classifyRuntimeRoute(requestPolicy, prompt);
-  const preferredRuntime = selectPreferredRuntime(existingThread, runtimeRoute);
-  const sessionId = shouldReuseExistingThread(existingThread, preferredRuntime)
-    ? existingThread.thread_id
-    : sessions[group.folder];
-
-  refreshTaskSnapshots();
-
-  const availableGroups = getAvailableGroups();
-  writeGroupsSnapshot(
-    group.folder,
-    isMain,
-    availableGroups,
-    new Set(Object.keys(registeredGroups)),
-  );
-
-  const wrappedOnOutput = onOutput
-    ? async (output: ContainerOutput) => {
-        if (output.newSessionId) {
-          persistAgentThread(
-            group.folder,
-            output.newSessionId,
-            output.runtime || preferredRuntime,
-          );
-        }
-        await onOutput(output);
-      }
-    : undefined;
-
   try {
-    const output = await runContainerAgent(
-      group,
+    const { output } = await executeRuntimeTurn(
+      getRuntimeServiceDependencies(),
       {
-        prompt,
-        sessionId,
-        preferredRuntime,
-        runtimeRoute,
-        groupFolder: group.folder,
+        group,
+        groupJid: chatJid,
         chatJid,
-        isMain,
-        assistantName: ASSISTANT_NAME,
+        prompt,
         requestPolicy,
+        onOutput,
       },
-      (proc, containerName) =>
-        queue.registerProcess(chatJid, proc, containerName, group.folder),
-      wrappedOnOutput,
     );
-
-    if (output.newSessionId) {
-      persistAgentThread(
-        group.folder,
-        output.newSessionId,
-        output.runtime || preferredRuntime,
-      );
-    }
 
     if (output.status === 'error') {
       logger.error(
@@ -493,99 +496,6 @@ async function runAgent(
     logger.error({ group: group.name, err }, 'Agent error');
     return 'error';
   }
-}
-
-async function queueRuntimeFollowup(
-  operatorChatJid: string,
-  targetJid: string,
-  targetFolder: string,
-  prompt: string,
-): Promise<void> {
-  const target = registeredGroups[targetJid];
-  if (!target || target.folder !== targetFolder) {
-    throw new Error(
-      `No registered group found for folder "${targetFolder}" during follow-up dispatch.`,
-    );
-  }
-
-  const taskId = `runtime-followup-${Date.now()}-${target.folder}`;
-  const requestPolicy = classifyAssistantRequest([{ content: prompt }]);
-
-  queue.enqueueTask(targetJid, taskId, async () => {
-    const existingThread =
-      getAgentThread(target.folder) || agentThreads[target.folder];
-    const runtimeRoute = classifyRuntimeRoute(requestPolicy, prompt);
-    const preferredRuntime = selectPreferredRuntime(
-      existingThread,
-      runtimeRoute,
-    );
-    const sessionId = shouldReuseExistingThread(
-      existingThread,
-      preferredRuntime,
-    )
-      ? existingThread.thread_id
-      : sessions[target.folder];
-    let emittedOutput = false;
-
-    const output = await runContainerAgent(
-      target,
-      {
-        prompt,
-        sessionId,
-        preferredRuntime,
-        runtimeRoute,
-        groupFolder: target.folder,
-        chatJid: targetJid,
-        isMain: target.isMain === true,
-        assistantName: ASSISTANT_NAME,
-        requestPolicy,
-      },
-      (proc, containerName) =>
-        queue.registerProcess(targetJid, proc, containerName, target.folder),
-      async (result) => {
-        if (result.newSessionId) {
-          persistAgentThread(
-            target.folder,
-            result.newSessionId,
-            result.runtime || preferredRuntime,
-          );
-        }
-        if (result.result) {
-          const text = formatOutbound(result.result);
-          if (text) {
-            emittedOutput = true;
-            await sendToChat(operatorChatJid, text);
-          }
-        }
-        if (result.status === 'success') {
-          queue.notifyIdle(targetJid);
-        }
-      },
-    );
-
-    if (output.newSessionId) {
-      persistAgentThread(
-        target.folder,
-        output.newSessionId,
-        output.runtime || preferredRuntime,
-      );
-    }
-
-    if (output.status === 'error') {
-      await sendToChat(
-        operatorChatJid,
-        `Runtime follow-up failed for ${targetFolder}: ${output.error || 'unknown error'}`,
-      );
-      return;
-    }
-
-    if (!emittedOutput) {
-      await sendToChat(
-        operatorChatJid,
-        `Runtime follow-up for ${targetFolder} completed with no user-facing output.`,
-      );
-    }
-  });
 }
 
 async function handleOperatorCommand(
@@ -633,12 +543,12 @@ async function handleOperatorCommand(
       requestStop(groupJid) {
         return queue.requestStop(groupJid);
       },
+      orchestration: orchestrationService,
       queueFollowup(args) {
-        return queueRuntimeFollowup(
-          args.operatorChatJid,
-          args.targetGroupJid,
-          args.targetFolder,
-          args.prompt,
+        return Promise.reject(
+          new Error(
+            `Legacy runtime follow-up path is unavailable for ${args.targetFolder}; use the orchestration service.`,
+          ),
         );
       },
     },

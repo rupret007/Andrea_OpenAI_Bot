@@ -11,6 +11,7 @@ This repo is not the Cursor/design sibling project. `Andrea_NanoBot` remains the
 - Provider-neutral runtime routing with `codex_local` and `openai_cloud`.
 - Internal legacy session compatibility so older imported state is not dropped.
 - SQLite-backed thread and job persistence.
+- A transport-agnostic orchestration service that external callers can wrap later.
 - Operator-only runtime controls that stay secondary to Andrea's normal assistant behavior.
 
 ## Current Runtime Truth
@@ -23,6 +24,7 @@ Validated on March 30, 2026:
 - Podman image build and smoke run passed on Windows with Podman Desktop.
 - Runtime-focused tests passed under Node `22.22.2`.
 - Thread/job persistence, routing, Podman selection, scheduler integration, IPC auth, and operator command handling are covered by focused tests.
+- A new internal orchestration boundary is in place for external callers such as NanoClaw.
 
 Conditional or blocked:
 
@@ -139,10 +141,31 @@ Main control chat only:
 
 Legacy `/remote-control` commands are not part of the supported Andrea operator surface in this repo.
 
+## NanoClaw Integration Boundary
+
+This repo now exposes a transport-agnostic orchestration service for external operator surfaces.
+
+Phase 1 surface:
+
+- `createJob`
+- `followUp`
+- `getJob`
+- `listJobs`
+- `getJobLogs`
+- `stopJob`
+
+What this means:
+
+- NanoClaw can own the Telegram dashboard and current-job UX
+- Andrea can own durable Codex/OpenAI runtime execution
+- there is still no HTTP, CLI, or stdio transport wrapper in this pass
+- `openai_cloud` remains conditional on `OPENAI_API_KEY`
+
 ## Docs
 
 - [Docs Index](docs/README.md)
 - [Runtime](docs/RUNTIME.md)
+- [Orchestration Contract](docs/ORCHESTRATION_CONTRACT.md)
 - [Runtime audit](docs/RUNTIME_AUDIT.md)
 - [Operations (restarts)](docs/OPERATIONS.md)
 - [Setup And Requirements](docs/REQUIREMENTS.md)
@@ -159,7 +182,7 @@ This repo is now operationally real enough to build, test, and exercise as Andre
 
 It is not fully proven as a production-ready daily driver yet because:
 
-- the successful live `codex_local` turn is blocked by account usage limits in this environment
+- the cross-repo transport layer does not exist yet
 - `openai_cloud` still needs configured credentials and remains intentionally limited
 - the Telegram-side operator flow was not live-driven in this pass
 

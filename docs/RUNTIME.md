@@ -24,6 +24,24 @@ Telegram or other channel
   -> Andrea reply
 ```
 
+## Orchestration Boundary
+
+This repo now includes an internal callable orchestration service for external operator surfaces such as NanoClaw.
+
+What it does in Phase 1:
+
+- accepts async `createJob` and `followUp` requests
+- persists durable runtime job records in SQLite
+- exposes `getJob`, `listJobs`, `getJobLogs`, and `stopJob`
+- reuses real runtime threads when the selected runtime allows it
+
+What it does not do yet:
+
+- expose HTTP, CLI, stdio, or another cross-process transport
+- own dashboard or current-selection UI state
+
+See [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md) for the transport-agnostic request and response model.
+
 ## Local Runtime
 
 `codex_local` is the primary path.
@@ -81,6 +99,7 @@ What is still needed:
 Persisted state includes:
 
 - runtime threads
+- runtime orchestration jobs
 - legacy sessions
 - scheduled tasks
 - task run logs
@@ -97,6 +116,8 @@ Operator-only runtime commands are handled separately from normal assistant conv
 - `/runtime-followup`
 - `/runtime-stop`
 - `/runtime-logs`
+
+Those commands now sit on top of the callable orchestration/service boundary where appropriate, rather than owning the only follow-up and stop path themselves.
 
 Legacy `/remote-control` commands are rejected with guidance toward the supported runtime commands.
 

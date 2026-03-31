@@ -5,6 +5,7 @@ These documents describe the current Codex-first Andrea runtime in this repo.
 Current source-of-truth docs:
 
 - [Runtime](RUNTIME.md)
+- [Orchestration Contract](ORCHESTRATION_CONTRACT.md)
 - [Runtime reality audit](RUNTIME_AUDIT.md)
 - [Operations (restarts, services)](OPERATIONS.md)
 - [Setup And Requirements](REQUIREMENTS.md)

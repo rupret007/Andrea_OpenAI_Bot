@@ -1,40 +1,52 @@
 # Merge Boundary
 
-This repo is the standalone Codex/OpenAI-backed Andrea bot for now.
+This repo is now the Codex/OpenAI runtime lane in a two-repo system.
 
-The intended merge target later is `Andrea_NanoBot`, which remains the separate Cursor/design/infra sibling repo.
+Current directional split:
 
-## Pieces Intended To Merge Back
+- `NanoClaw` is becoming the primary Telegram/operator surface
+- `Andrea_OpenAI_Bot` is becoming the durable runtime backend NanoClaw can call
 
-- provider-neutral runtime routing
-- Podman-first container behavior
-- per-group runtime thread/job persistence
+This pass does **not** merge the repos. It defines the clean boundary between them.
+
+## What Andrea Owns
+
+- provider-neutral runtime selection
+- Podman-first container execution
+- per-group thread continuity
+- durable runtime orchestration jobs
+- job-specific logs and honest runtime failures
 - Codex auth seeding into per-group `.codex`
-- operator runtime command surface
-- runtime validation scripts and patterns
 
-## Pieces That Stay Product-Level In Andrea_Nano
+## What NanoClaw Owns
 
-- broader Telegram product design
-- Cursor cloud and desktop lanes
-- app-level onboarding/menu choices
-- multi-surface infrastructure decisions
+- Telegram dashboard and button UX
+- current selection / "current job" UI state
+- reply-linked operator workflows
+- operator guidance and navigation
 
 ## Contract To Preserve
 
-- runtime request shape
+- the orchestration request/response model in [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md)
 - runtime thread/job persistence shape
-- operator command semantics
 - route policy semantics:
   - `local_required`
   - `cloud_allowed`
   - `cloud_preferred`
+- the truth that `codex_local` is primary and `openai_cloud` is conditional
+
+## What Is Intentionally Deferred
+
+- HTTP, CLI, stdio, or other transport wrapping
+- a shared dashboard/session state layer across repos
+- artifact browsing
+- a session-browser API separate from job records
 
 ## Temporary Standalone Conveniences
 
-These are useful here now, even if they later move or shrink:
+These still live here for local validation and development:
 
-- standalone README/docs framing
-- direct runtime validation script
-- local standalone bot packaging metadata
-- real-world message corpus and optional Telegram sender under `scripts/` (load testing / UX validation only)
+- standalone runtime validation script
+- runtime-focused README/docs framing
+- local bot packaging metadata
+- real-world message corpus and optional Telegram sender under `scripts/`
