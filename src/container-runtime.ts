@@ -167,6 +167,17 @@ export function getContainerRuntimeStatus(
   }
 }
 
+export function isContainerRuntimeExecutionCapable(
+  runtime: ContainerRuntimeName,
+  status: ContainerRuntimeStatus,
+): boolean {
+  const spec = getContainerRuntimeSpec(runtime);
+  if (!spec.supportsInfoProbe) {
+    return status === 'installed';
+  }
+  return status === 'running';
+}
+
 export function getContainerRuntimeHostAlias(
   runtime = getResolvedContainerRuntime(),
 ): string {

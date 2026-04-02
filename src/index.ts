@@ -16,6 +16,9 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   MAX_MESSAGES_PER_PROMPT,
+  ORCHESTRATION_HTTP_ENABLED,
+  ORCHESTRATION_HTTP_HOST,
+  ORCHESTRATION_HTTP_PORT,
   ONECLI_URL,
   POLL_INTERVAL,
   TIMEZONE,
@@ -36,6 +39,7 @@ import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
   getContainerRuntimeStatus,
+  isContainerRuntimeExecutionCapable,
 } from './container-runtime.js';
 import {
   getAllAgentThreads,
@@ -70,6 +74,7 @@ import {
   createRuntimeOrchestrationService,
   executeRuntimeTurn,
 } from './runtime-orchestration.js';
+import { startOrchestrationHttpServer } from './orchestration-http.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -99,6 +104,20 @@ const channels: Channel[] = [];
 const queue = new GroupQueue();
 
 const onecli = new OneCLI({ url: ONECLI_URL });
+
+function readPackageVersion(): string | null {
+  try {
+    const packageJsonPath = path.resolve(process.cwd(), 'package.json');
+    const raw = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
+      version?: unknown;
+    };
+    return typeof raw.version === 'string' ? raw.version : null;
+  } catch {
+    return null;
+  }
+}
+
+const packageVersion = readPackageVersion();
 
 function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
   if (group.isMain) return;
@@ -328,6 +347,33 @@ const orchestrationService = createRuntimeOrchestrationService(
   getRuntimeServiceDependencies(),
 );
 
+function getRuntimeStatusSnapshot() {
+  return getAgentRuntimeStatusSnapshot({
+    activeThreads: agentThreads,
+    activeJobs: queue.getRuntimeJobs().length,
+    containerRuntimeName: CONTAINER_RUNTIME_NAME,
+    containerRuntimeStatus: getContainerRuntimeStatus(CONTAINER_RUNTIME_NAME),
+  });
+}
+
+function getOrchestrationHttpMeta() {
+  const snapshot = getRuntimeStatusSnapshot();
+  const localReady =
+    snapshot.codexLocalReady &&
+    isContainerRuntimeExecutionCapable(
+      CONTAINER_RUNTIME_NAME,
+      snapshot.containerRuntimeStatus,
+    );
+
+  return {
+    backend: 'andrea_openai' as const,
+    transport: 'http' as const,
+    enabled: true as const,
+    version: packageVersion,
+    ready: localReady || snapshot.openAiCloudReady,
+  };
+}
+
 async function sendToChat(chatJid: string, text: string): Promise<void> {
   const channel = findChannel(channels, chatJid);
   if (!channel) {
@@ -523,15 +569,7 @@ async function handleOperatorCommand(
     {
       sendToChat,
       getStatusMessage() {
-        const snapshot = getAgentRuntimeStatusSnapshot({
-          activeThreads: agentThreads,
-          activeJobs: queue.getRuntimeJobs().length,
-          containerRuntimeName: CONTAINER_RUNTIME_NAME,
-          containerRuntimeStatus: getContainerRuntimeStatus(
-            CONTAINER_RUNTIME_NAME,
-          ),
-        });
-        return formatAgentRuntimeStatusMessage(snapshot);
+        return formatAgentRuntimeStatusMessage(getRuntimeStatusSnapshot());
       },
       getRuntimeJobs() {
         return queue.getRuntimeJobs();
@@ -696,6 +734,22 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
 
+  if (ORCHESTRATION_HTTP_ENABLED) {
+    const httpServer = await startOrchestrationHttpServer({
+      host: ORCHESTRATION_HTTP_HOST,
+      port: ORCHESTRATION_HTTP_PORT,
+      service: orchestrationService,
+      getMeta: getOrchestrationHttpMeta,
+    });
+    logger.info(
+      {
+        host: httpServer.host,
+        port: httpServer.port,
+      },
+      'Loopback orchestration HTTP server started',
+    );
+  }
+
   // Ensure OneCLI agents exist for all registered groups.
   // Recovers from missed creates (e.g. OneCLI was down at registration time).
   for (const [jid, group] of Object.entries(registeredGroups)) {
@@ -771,8 +825,15 @@ async function main(): Promise<void> {
     await channel.connect();
   }
   if (channels.length === 0) {
-    logger.fatal('No channels connected');
-    process.exit(1);
+    if (!ORCHESTRATION_HTTP_ENABLED) {
+      logger.fatal('No channels connected');
+      process.exit(1);
+    }
+
+    logger.warn(
+      'No channels connected; continuing in loopback orchestration HTTP-only mode.',
+    );
+    return;
   }
 
   // Start subsystems (independently of connection handler)

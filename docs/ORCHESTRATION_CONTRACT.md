@@ -1,27 +1,44 @@
 # Orchestration Contract
 
-This repo now exposes a transport-agnostic runtime orchestration boundary for external callers such as NanoClaw.
+`Andrea_OpenAI_Bot` now exposes two aligned backend surfaces:
 
-This is **not** a finished cross-repo transport. There is no HTTP, CLI, or stdio wrapper in this pass. The contract lives as an internal callable service inside `Andrea_OpenAI_Bot`.
+- an in-process orchestration service
+- an opt-in localhost-only HTTP wrapper around that same service
 
-## Purpose
+This repo is the Codex/OpenAI execution lane that `Andrea_NanoBot` will later call. It owns execution truth, not the Telegram shell.
 
-NanoClaw is expected to own:
+## Ownership Split
 
-- Telegram operator UX
-- dashboard/current-selection state
-- reply-linked operator flows
+`Andrea_OpenAI_Bot` owns:
 
-Andrea is expected to own:
-
-- durable runtime job records
-- Codex/OpenAI runtime execution
+- runtime execution
+- provider routing
+- durable job lifecycle
 - real thread reuse
-- honest logs and failure state
+- logs
+- stop/cancel
+- truthful runtime and provider errors
 
-## Service Surface
+`Andrea_NanoBot` owns:
 
-The new orchestration service exposes:
+- Telegram UX
+- reply-linked cards
+- button flows
+- current selected job state
+- current selected workspace state
+- dashboard state
+- operator shell behavior
+
+## Shared Concepts
+
+- `jobId` is the primary opaque backend handle
+- `threadId` is continuity metadata when a real reusable runtime thread exists
+- selection state stays outside this repo
+- runtime/provider failures are reflected in job state, not transport status
+
+## Internal Service Surface
+
+The orchestration service exposes:
 
 - `createJob(request)`
 - `followUp(request)`
@@ -30,24 +47,28 @@ The new orchestration service exposes:
 - `getJobLogs(query)`
 - `stopJob(request)`
 
-Phase 1 is async and job-centric:
+The model is async and job-centric:
 
-- `createJob` and `followUp` return a durable Andrea job record immediately
+- `createJob` and `followUp` return a durable job immediately
 - callers poll `getJob`, `listJobs`, and `getJobLogs`
 - `stopJob` marks `stopRequested` and reports whether a live stop signal was accepted
 
-## Request Types
+## Source Metadata
 
-Core source metadata:
+Caller metadata stays generic and transport-friendly:
 
 ```ts
 type OrchestrationSource = {
   system: string;
-  actorRef?: string | null;
+  actorType?: string | null;
+  actorId?: string | null;
   correlationId?: string | null;
-  replyRef?: string | null;
 };
 ```
+
+The backend does not require Telegram-specific fields.
+
+## Request Types
 
 Create:
 
@@ -94,9 +115,9 @@ type StopRuntimeJobRequest = {
 };
 ```
 
-## Response Model
+## Job Model
 
-Each durable job record includes:
+Each durable orchestration job record includes:
 
 ```ts
 type RuntimeOrchestrationJob = {
@@ -117,8 +138,9 @@ type RuntimeOrchestrationJob = {
   errorText?: string | null;
   logFile?: string | null;
   sourceSystem: string;
+  actorType?: string | null;
+  actorId?: string | null;
   correlationId?: string | null;
-  replyRef?: string | null;
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -135,6 +157,86 @@ type RuntimeOrchestrationJobList = {
 };
 ```
 
+## HTTP Wrapper
+
+The local HTTP boundary is intentionally narrow and loopback-only.
+
+Routes:
+
+- `GET /meta`
+- `POST /jobs`
+- `POST /jobs/:jobId/followup`
+- `GET /jobs/:jobId`
+- `GET /jobs`
+- `GET /jobs/:jobId/logs`
+- `POST /jobs/:jobId/stop`
+
+HTTP request shapes:
+
+- `POST /jobs`
+  - body: `{ groupFolder, prompt, source }`
+- `POST /jobs/:jobId/followup`
+  - body: `{ prompt, source }`
+- `GET /jobs`
+  - query: `groupFolder?`, `limit?`, `beforeJobId?`
+- `GET /jobs/:jobId/logs`
+  - query: `lines?`
+- `POST /jobs/:jobId/stop`
+  - body optional: `{ source? }`
+
+All HTTP job payloads include:
+
+```ts
+{
+  backend: 'andrea_openai',
+  capabilities: {
+    followUp: true,
+    logs: true,
+    stop: boolean
+  }
+}
+```
+
+`GET /meta` returns minimal local identity and readiness:
+
+```ts
+{
+  backend: 'andrea_openai',
+  transport: 'http',
+  enabled: true,
+  version: string | null,
+  ready: boolean
+}
+```
+
+## Ordering And Pagination
+
+`GET /jobs` uses stable newest-first ordering:
+
+- `createdAt DESC, jobId DESC`
+- most recent first
+- `beforeJobId` means jobs older than that anchor in the same ordering
+- `nextBeforeJobId` is the last returned job id when more results exist
+
+Unknown `beforeJobId` returns `404` at the HTTP layer.
+
+## Transport Error Semantics
+
+HTTP status codes represent transport outcomes only:
+
+- `400` invalid JSON, invalid params, or missing required fields
+- `404` missing job, missing group target, or unknown `beforeJobId`
+- `405` wrong method
+- `500` handler/transport failure
+
+Runtime/provider failures do not become transport failures. They remain visible in job state through:
+
+- `status`
+- `errorText`
+- `selectedRuntime`
+- `latestOutputText`
+- `finalOutputText`
+
 ## Resolution And Reuse Rules
 
 - `createJob` targets an Andrea `groupFolder`
@@ -143,31 +245,23 @@ type RuntimeOrchestrationJobList = {
   - `threadId`
   - `groupFolder`
 - invalid or conflicting follow-up targets are rejected
-- `requestedRuntime` is advisory only in this pass
-- actual runtime selection still follows Andrea’s current route/runtime logic
+- `requestedRuntime` remains advisory only
+- actual runtime selection still follows Andrea's current route/runtime logic
 - `threadId` is populated when real execution knows it or reuses it truthfully
 
-## Guarantees In Phase 1
+## Guarantees
 
 - durable SQLite-backed job records
 - honest `queued/running/succeeded/failed` lifecycle
 - real thread reuse when the selected runtime allows it
 - job-specific log retrieval when a log file exists
-- truthful `openai_cloud` credential failures
 - no reintroduction of Claude remote-control concepts
+- a small local HTTP boundary for future `Andrea_NanoBot` integration
 
 ## Conditional Or Deferred
 
 - `openai_cloud` still requires `OPENAI_API_KEY` or a compatible gateway token
-- this contract does not yet provide HTTP, CLI, stdio, or daemon transport
+- the HTTP boundary is local-only, opt-in, and unauthenticated in this pass
+- there is still no public deployment surface, auth layer, or broader transport framework
 - there is no separate session browser yet; callers use `jobId`, `threadId`, and `listJobs`
 - `/runtime-artifacts` remains deferred
-
-## What A Future NanoClaw Caller Must Provide
-
-- an Andrea `groupFolder`
-- prompt text
-- `source.system` and any caller correlation metadata it wants preserved
-- optional `jobId` or `threadId` for follow-ups
-
-The recommended Phase 2 on the NanoClaw side is to keep the dashboard and button flows in NanoClaw, and treat this repo as the durable runtime backend it polls.

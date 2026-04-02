@@ -41,7 +41,7 @@ What these commands do well today:
 - targeted follow-up dispatch
 - stop requests
 - latest log tail retrieval
-- thin operator access to the same orchestration backend NanoClaw can later call
+- thin operator access to the same orchestration backend that `Andrea_NanoBot` can later call over the local HTTP boundary
 
 What they do not claim today:
 
@@ -61,3 +61,5 @@ Validated in focused tests:
 Not live-driven through Telegram in this pass:
 
 - a full operator chat flow against a connected real channel
+
+Operator commands remain in-process. They do not proxy through the HTTP layer.

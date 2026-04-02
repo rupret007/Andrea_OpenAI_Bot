@@ -16,6 +16,9 @@ const envConfig = readEnvFile([
   'CONTAINER_RUNTIME',
   'CONTAINER_RUNTIME_BIN',
   'OPENAI_MODEL_FALLBACK',
+  'ORCHESTRATION_HTTP_ENABLED',
+  'ORCHESTRATION_HTTP_HOST',
+  'ORCHESTRATION_HTTP_PORT',
   'ONECLI_URL',
   'TZ',
 ]);
@@ -118,6 +121,23 @@ export const OPENAI_MODEL_FALLBACK =
   process.env.OPENAI_MODEL_FALLBACK ||
   envConfig.OPENAI_MODEL_FALLBACK ||
   'gpt-5.4';
+export const ORCHESTRATION_HTTP_ENABLED =
+  (process.env.ORCHESTRATION_HTTP_ENABLED ||
+    envConfig.ORCHESTRATION_HTTP_ENABLED ||
+    'false') === 'true';
+export const ORCHESTRATION_HTTP_HOST =
+  process.env.ORCHESTRATION_HTTP_HOST ||
+  envConfig.ORCHESTRATION_HTTP_HOST ||
+  '127.0.0.1';
+export const ORCHESTRATION_HTTP_PORT = Math.max(
+  1,
+  parseInt(
+    process.env.ORCHESTRATION_HTTP_PORT ||
+      envConfig.ORCHESTRATION_HTTP_PORT ||
+      '3210',
+    10,
+  ) || 3210,
+);
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
   1,
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10,

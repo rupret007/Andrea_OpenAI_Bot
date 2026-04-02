@@ -96,9 +96,9 @@ export interface AgentThreadState {
 
 export interface OrchestrationSource {
   system: string;
-  actorRef?: string | null;
+  actorType?: string | null;
+  actorId?: string | null;
   correlationId?: string | null;
-  replyRef?: string | null;
 }
 
 export interface CreateRuntimeJobRequest {
@@ -160,8 +160,9 @@ export interface RuntimeOrchestrationJob {
   errorText?: string | null;
   logFile?: string | null;
   sourceSystem: string;
+  actorType?: string | null;
+  actorId?: string | null;
   correlationId?: string | null;
-  replyRef?: string | null;
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -183,6 +184,32 @@ export interface RuntimeJobLogsResult {
 export interface StopRuntimeJobResult {
   job: RuntimeOrchestrationJob;
   liveStopAccepted: boolean;
+}
+
+export const ORCHESTRATION_BACKEND_ID = 'andrea_openai';
+
+export interface RuntimeJobCapabilities {
+  followUp: boolean;
+  logs: boolean;
+  stop: boolean;
+}
+
+export interface RuntimeBackendJob extends RuntimeOrchestrationJob {
+  backend: typeof ORCHESTRATION_BACKEND_ID;
+  capabilities: RuntimeJobCapabilities;
+}
+
+export interface RuntimeBackendJobList {
+  jobs: RuntimeBackendJob[];
+  nextBeforeJobId?: string | null;
+}
+
+export interface RuntimeBackendMeta {
+  backend: typeof ORCHESTRATION_BACKEND_ID;
+  transport: 'http';
+  enabled: true;
+  version: string | null;
+  ready: boolean;
 }
 
 // --- Channel abstraction ---

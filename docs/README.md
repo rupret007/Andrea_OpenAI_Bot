@@ -19,4 +19,5 @@ Current source-of-truth docs:
 Important:
 
 - The docs listed above are the current source of truth for the standalone Codex/OpenAI runtime.
+- The active integration shape is: `Andrea_OpenAI_Bot` owns backend execution truth, while `Andrea_NanoBot` owns Telegram UX and selection state.
 - Older NanoClaw-era or Claude-era materials elsewhere in `docs/` are preserved only as legacy reference unless they have been updated to match this runtime.

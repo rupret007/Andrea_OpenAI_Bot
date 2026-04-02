@@ -132,7 +132,8 @@ export async function dispatchRuntimeCommand(
         prompt: followupText,
         source: {
           system: 'operator_command',
-          actorRef: operatorChatJid,
+          actorType: 'chat',
+          actorId: operatorChatJid,
         },
       });
     } else {
@@ -181,7 +182,8 @@ export async function dispatchRuntimeCommand(
           jobId: activeJob.jobId,
           source: {
             system: 'operator_command',
-            actorRef: operatorChatJid,
+            actorType: 'chat',
+            actorId: operatorChatJid,
           },
         });
         stopped = stopResult.liveStopAccepted || stopResult.job.stopRequested;

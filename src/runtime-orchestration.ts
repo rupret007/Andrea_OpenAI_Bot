@@ -154,9 +154,9 @@ function normalizeSource(source: OrchestrationSource): OrchestrationSource {
 
   return {
     system,
-    actorRef: trimToNull(source.actorRef),
+    actorType: trimToNull(source.actorType),
+    actorId: trimToNull(source.actorId),
     correlationId: trimToNull(source.correlationId),
-    replyRef: trimToNull(source.replyRef),
   };
 }
 
@@ -335,8 +335,9 @@ function toPublicJob(
     errorText: job.errorText,
     logFile: job.logFile,
     sourceSystem: job.sourceSystem,
+    actorType: job.actorType,
+    actorId: job.actorId,
     correlationId: job.correlationId,
-    replyRef: job.replyRef,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
@@ -477,9 +478,9 @@ function buildQueuedJobRecord(args: {
     errorText: null,
     logFile: null,
     sourceSystem: args.source.system,
-    actorRef: args.source.actorRef,
+    actorType: args.source.actorType,
+    actorId: args.source.actorId,
     correlationId: args.source.correlationId,
-    replyRef: args.source.replyRef,
     createdAt: timestamp,
     startedAt: null,
     finishedAt: null,

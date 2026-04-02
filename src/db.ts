@@ -104,9 +104,9 @@ function createSchema(database: Database.Database): void {
       error_text TEXT,
       log_file TEXT,
       source_system TEXT NOT NULL,
-      actor_ref TEXT,
+      actor_type TEXT,
+      actor_id TEXT,
       correlation_id TEXT,
-      reply_ref TEXT,
       created_at TEXT NOT NULL,
       started_at TEXT,
       finished_at TEXT,
@@ -169,6 +169,35 @@ function createSchema(database: Database.Database): void {
     );
   } catch {
     /* column already exists */
+  }
+
+  // Add generic orchestration source columns if they don't exist.
+  try {
+    database.exec(
+      `ALTER TABLE runtime_orchestration_jobs ADD COLUMN actor_type TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  try {
+    database.exec(
+      `ALTER TABLE runtime_orchestration_jobs ADD COLUMN actor_id TEXT`,
+    );
+  } catch {
+    /* column already exists */
+  }
+
+  // Backfill older Phase 1 rows that stored actor identity in actor_ref.
+  try {
+    database.exec(`
+      UPDATE runtime_orchestration_jobs
+      SET actor_id = actor_ref
+      WHERE actor_id IS NULL
+        AND actor_ref IS NOT NULL
+    `);
+  } catch {
+    /* older source column not present */
   }
 
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
@@ -716,9 +745,9 @@ interface RuntimeOrchestrationJobRow {
   error_text: string | null;
   log_file: string | null;
   source_system: string;
-  actor_ref: string | null;
+  actor_type: string | null;
+  actor_id: string | null;
   correlation_id: string | null;
-  reply_ref: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -726,7 +755,8 @@ interface RuntimeOrchestrationJobRow {
 }
 
 export interface RuntimeOrchestrationJobRecord extends RuntimeOrchestrationJob {
-  actorRef?: string | null;
+  actorType?: string | null;
+  actorId?: string | null;
 }
 
 function mapRuntimeOrchestrationJobRow(
@@ -750,9 +780,9 @@ function mapRuntimeOrchestrationJobRow(
     errorText: row.error_text,
     logFile: row.log_file,
     sourceSystem: row.source_system,
-    actorRef: row.actor_ref,
+    actorType: row.actor_type,
+    actorId: row.actor_id,
     correlationId: row.correlation_id,
-    replyRef: row.reply_ref,
     createdAt: row.created_at,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
@@ -784,9 +814,9 @@ export function createRuntimeOrchestrationJob(
         error_text,
         log_file,
         source_system,
-        actor_ref,
+        actor_type,
+        actor_id,
         correlation_id,
-        reply_ref,
         created_at,
         started_at,
         finished_at,
@@ -811,9 +841,9 @@ export function createRuntimeOrchestrationJob(
     job.errorText || null,
     job.logFile || null,
     job.sourceSystem,
-    job.actorRef || null,
+    job.actorType || null,
+    job.actorId || null,
     job.correlationId || null,
-    job.replyRef || null,
     job.createdAt,
     job.startedAt || null,
     job.finishedAt || null,
@@ -853,10 +883,11 @@ export function updateRuntimeOrchestrationJob(
   if (updates.errorText !== undefined)
     addField('error_text', updates.errorText);
   if (updates.logFile !== undefined) addField('log_file', updates.logFile);
+  if (updates.actorType !== undefined) addField('actor_type', updates.actorType);
+  if (updates.actorId !== undefined) addField('actor_id', updates.actorId);
   if (updates.correlationId !== undefined) {
     addField('correlation_id', updates.correlationId);
   }
-  if (updates.replyRef !== undefined) addField('reply_ref', updates.replyRef);
   if (updates.startedAt !== undefined)
     addField('started_at', updates.startedAt);
   if (updates.finishedAt !== undefined) {

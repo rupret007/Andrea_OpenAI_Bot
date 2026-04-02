@@ -26,21 +26,35 @@ Telegram or other channel
 
 ## Orchestration Boundary
 
-This repo now includes an internal callable orchestration service for external operator surfaces such as NanoClaw.
+This repo now includes:
 
-What it does in Phase 1:
+- an internal callable orchestration service
+- an opt-in localhost-only HTTP wrapper around that same service
+
+The backend surface is shaped for `Andrea_NanoBot`, which will eventually own the Telegram-first operator shell.
+
+What it does now:
 
 - accepts async `createJob` and `followUp` requests
 - persists durable runtime job records in SQLite
 - exposes `getJob`, `listJobs`, `getJobLogs`, and `stopJob`
 - reuses real runtime threads when the selected runtime allows it
+- exposes a local HTTP boundary with:
+  - `GET /meta`
+  - `POST /jobs`
+  - `POST /jobs/:jobId/followup`
+  - `GET /jobs`
+  - `GET /jobs/:jobId`
+  - `GET /jobs/:jobId/logs`
+  - `POST /jobs/:jobId/stop`
 
-What it does not do yet:
+What it still does not do:
 
-- expose HTTP, CLI, stdio, or another cross-process transport
 - own dashboard or current-selection UI state
+- expose a public internet-facing API
+- add auth or broader infrastructure beyond local loopback transport
 
-See [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md) for the transport-agnostic request and response model.
+See [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md) for the internal service model and the loopback HTTP mapping.
 
 ## Local Runtime
 
@@ -120,6 +134,27 @@ Operator-only runtime commands are handled separately from normal assistant conv
 Those commands now sit on top of the callable orchestration/service boundary where appropriate, rather than owning the only follow-up and stop path themselves.
 
 Legacy `/remote-control` commands are rejected with guidance toward the supported runtime commands.
+
+## Loopback HTTP Mode
+
+The HTTP boundary is disabled by default.
+
+Enable it with:
+
+```dotenv
+ORCHESTRATION_HTTP_ENABLED=true
+ORCHESTRATION_HTTP_HOST=127.0.0.1
+ORCHESTRATION_HTTP_PORT=3210
+```
+
+Rules:
+
+- host must stay loopback-only
+- runtime/provider failures stay in job state, not HTTP status codes
+- `jobId` is the primary backend handle
+- `threadId` is continuity metadata returned on job reads
+
+If HTTP is enabled and no chat channels connect, the process now stays up in loopback HTTP-only mode instead of exiting. That is intended for local backend consumption by `Andrea_NanoBot`, not for public deployment.
 
 ## `/runtime-artifacts`
 

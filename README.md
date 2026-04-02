@@ -11,7 +11,7 @@ This repo is not the Cursor/design sibling project. `Andrea_NanoBot` remains the
 - Provider-neutral runtime routing with `codex_local` and `openai_cloud`.
 - Internal legacy session compatibility so older imported state is not dropped.
 - SQLite-backed thread and job persistence.
-- A transport-agnostic orchestration service that external callers can wrap later.
+- A transport-agnostic orchestration service plus an opt-in loopback HTTP wrapper for local callers.
 - Operator-only runtime controls that stay secondary to Andrea's normal assistant behavior.
 
 ## Current Runtime Truth
@@ -24,7 +24,7 @@ Validated on March 30, 2026:
 - Podman image build and smoke run passed on Windows with Podman Desktop.
 - Runtime-focused tests passed under Node `22.22.2`.
 - Thread/job persistence, routing, Podman selection, scheduler integration, IPC auth, and operator command handling are covered by focused tests.
-- A new internal orchestration boundary is in place for external callers such as NanoClaw.
+- A new orchestration boundary is in place for external callers such as `Andrea_NanoBot`.
 
 Conditional or blocked:
 
@@ -94,6 +94,9 @@ AGENT_RUNTIME_FALLBACK=openai_cloud
 CONTAINER_RUNTIME_BIN=podman
 CODEX_LOCAL_ENABLED=true
 OPENAI_MODEL_FALLBACK=gpt-5.4
+ORCHESTRATION_HTTP_ENABLED=false
+ORCHESTRATION_HTTP_HOST=127.0.0.1
+ORCHESTRATION_HTTP_PORT=3210
 ```
 
 If you want `openai_cloud`, add:
@@ -141,11 +144,26 @@ Main control chat only:
 
 Legacy `/remote-control` commands are not part of the supported Andrea operator surface in this repo.
 
-## NanoClaw Integration Boundary
+## Andrea_NanoBot Integration Boundary
 
-This repo now exposes a transport-agnostic orchestration service for external operator surfaces.
+This repo now exposes:
 
-Phase 1 surface:
+- a transport-agnostic orchestration service in-process
+- an opt-in localhost-only HTTP wrapper around that same service
+
+This is the clean backend lane that `Andrea_NanoBot` can call later without pulling frontend state into this repo.
+
+HTTP surface:
+
+- `GET /meta`
+- `POST /jobs`
+- `POST /jobs/:jobId/followup`
+- `GET /jobs`
+- `GET /jobs/:jobId`
+- `GET /jobs/:jobId/logs`
+- `POST /jobs/:jobId/stop`
+
+Shared orchestration operations underneath:
 
 - `createJob`
 - `followUp`
@@ -156,10 +174,17 @@ Phase 1 surface:
 
 What this means:
 
-- NanoClaw can own the Telegram dashboard and current-job UX
-- Andrea can own durable Codex/OpenAI runtime execution
-- there is still no HTTP, CLI, or stdio transport wrapper in this pass
+- `Andrea_NanoBot` can own Telegram dashboard, current selection, and reply-linked UX
+- `Andrea_OpenAI_Bot` can own durable Codex/OpenAI runtime execution truth
+- `jobId` is the primary opaque backend handle
+- `threadId` is returned continuity metadata, not primary frontend state
+- the HTTP wrapper is local-only, opt-in, and not a public network API
 - `openai_cloud` remains conditional on `OPENAI_API_KEY`
+
+Optional local backend mode:
+
+- If `ORCHESTRATION_HTTP_ENABLED=true` and no chat channels connect, the process now stays up in loopback HTTP-only mode instead of exiting.
+- That mode is intended for local backend consumption, not as a public deployment shape.
 
 ## Docs
 
@@ -182,7 +207,7 @@ This repo is now operationally real enough to build, test, and exercise as Andre
 
 It is not fully proven as a production-ready daily driver yet because:
 
-- the cross-repo transport layer does not exist yet
+- the cross-repo transport is only a local opt-in loopback HTTP boundary today, not a broader deployment surface
 - `openai_cloud` still needs configured credentials and remains intentionally limited
 - the Telegram-side operator flow was not live-driven in this pass
 

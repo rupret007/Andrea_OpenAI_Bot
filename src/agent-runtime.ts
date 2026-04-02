@@ -6,6 +6,7 @@ import {
   OPENAI_MODEL_FALLBACK,
 } from './config.js';
 import { hasHostCodexAuthMaterial } from './codex-home.js';
+import type { ContainerRuntimeStatus } from './container-runtime.js';
 import type { AssistantRequestPolicy } from './assistant-routing.js';
 import type {
   AgentRuntimeName,
@@ -35,7 +36,7 @@ export interface AgentRuntimeStatusSnapshot {
   activeThreadCount: number;
   activeJobCount: number;
   containerRuntimeName: string;
-  containerRuntimeStatus: string;
+  containerRuntimeStatus: ContainerRuntimeStatus;
 }
 
 export function canRouteToCloud(route: RuntimeRoute): boolean {
@@ -93,7 +94,7 @@ export function getAgentRuntimeStatusSnapshot(params: {
   activeThreads: Record<string, AgentThreadState>;
   activeJobs: number;
   containerRuntimeName: string;
-  containerRuntimeStatus: string;
+  containerRuntimeStatus: ContainerRuntimeStatus;
 }): AgentRuntimeStatusSnapshot {
   const openAiApiKeyPresent = Boolean(process.env.OPENAI_API_KEY);
   const hostCodexAuthPresent = hasHostCodexAuthMaterial();

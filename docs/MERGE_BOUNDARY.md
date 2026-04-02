@@ -4,8 +4,8 @@ This repo is now the Codex/OpenAI runtime lane in a two-repo system.
 
 Current directional split:
 
-- `NanoClaw` is becoming the primary Telegram/operator surface
-- `Andrea_OpenAI_Bot` is becoming the durable runtime backend NanoClaw can call
+- `Andrea_NanoBot` is the architecture reference and eventual Telegram/operator shell
+- `Andrea_OpenAI_Bot` is the Codex/OpenAI execution backend lane that `Andrea_NanoBot` can call
 
 This pass does **not** merge the repos. It defines the clean boundary between them.
 
@@ -17,8 +17,9 @@ This pass does **not** merge the repos. It defines the clean boundary between th
 - durable runtime orchestration jobs
 - job-specific logs and honest runtime failures
 - Codex auth seeding into per-group `.codex`
+- the opt-in localhost HTTP transport adapter
 
-## What NanoClaw Owns
+## What Andrea_NanoBot Owns
 
 - Telegram dashboard and button UX
 - current selection / "current job" UI state
@@ -28,16 +29,26 @@ This pass does **not** merge the repos. It defines the clean boundary between th
 ## Contract To Preserve
 
 - the orchestration request/response model in [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md)
+- the loopback HTTP routes:
+  - `GET /meta`
+  - `POST /jobs`
+  - `POST /jobs/:jobId/followup`
+  - `GET /jobs`
+  - `GET /jobs/:jobId`
+  - `GET /jobs/:jobId/logs`
+  - `POST /jobs/:jobId/stop`
 - runtime thread/job persistence shape
 - route policy semantics:
   - `local_required`
   - `cloud_allowed`
   - `cloud_preferred`
 - the truth that `codex_local` is primary and `openai_cloud` is conditional
+- `jobId` as the primary backend handle
+- `threadId` as returned continuity metadata only
 
 ## What Is Intentionally Deferred
 
-- HTTP, CLI, stdio, or other transport wrapping
+- a transport beyond the local opt-in loopback HTTP boundary
 - a shared dashboard/session state layer across repos
 - artifact browsing
 - a session-browser API separate from job records
