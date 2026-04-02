@@ -162,10 +162,7 @@ async function readJsonBody(
   return parsed as Record<string, unknown>;
 }
 
-function requireNonEmptyString(
-  raw: unknown,
-  fieldName: string,
-): string {
+function requireNonEmptyString(raw: unknown, fieldName: string): string {
   if (typeof raw !== 'string') {
     throw new HttpRouteError(
       400,
@@ -328,10 +325,11 @@ async function handleRequest(
       }
 
       const jobs = options.service.listJobs({
-        groupFolder: optionalTrimmedString(
-          url.searchParams.get('groupFolder'),
-          'groupFolder',
-        ) || undefined,
+        groupFolder:
+          optionalTrimmedString(
+            url.searchParams.get('groupFolder'),
+            'groupFolder',
+          ) || undefined,
         limit: parsePositiveInt(url.searchParams.get('limit'), 'limit'),
         beforeJobId: beforeJobId || undefined,
       });

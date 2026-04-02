@@ -883,7 +883,8 @@ export function updateRuntimeOrchestrationJob(
   if (updates.errorText !== undefined)
     addField('error_text', updates.errorText);
   if (updates.logFile !== undefined) addField('log_file', updates.logFile);
-  if (updates.actorType !== undefined) addField('actor_type', updates.actorType);
+  if (updates.actorType !== undefined)
+    addField('actor_type', updates.actorType);
   if (updates.actorId !== undefined) addField('actor_id', updates.actorId);
   if (updates.correlationId !== undefined) {
     addField('correlation_id', updates.correlationId);
