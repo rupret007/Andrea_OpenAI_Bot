@@ -164,6 +164,7 @@ The local HTTP boundary is intentionally narrow and loopback-only.
 Routes:
 
 - `GET /meta`
+- `PUT /groups/:groupFolder`
 - `POST /jobs`
 - `POST /jobs/:jobId/followup`
 - `GET /jobs/:jobId`
@@ -175,6 +176,8 @@ HTTP request shapes:
 
 - `POST /jobs`
   - body: `{ groupFolder, prompt, source }`
+- `PUT /groups/:groupFolder`
+  - body: `{ jid, name, trigger, addedAt, requiresTrigger, isMain }`
 - `POST /jobs/:jobId/followup`
   - body: `{ prompt, source }`
 - `GET /jobs`
@@ -209,6 +212,25 @@ All HTTP job payloads include:
 }
 ```
 
+`PUT /groups/:groupFolder` returns:
+
+```ts
+{
+  group: {
+    jid: string;
+    name: string;
+    folder: string;
+    trigger: string;
+    addedAt: string;
+    requiresTrigger: boolean;
+    isMain: boolean;
+  }
+  created: boolean;
+}
+```
+
+This route is loopback-only and exists only to support `Andrea_NanoBot` first-run workspace bootstrap. It is not a broader admin CRUD API.
+
 ## Ordering And Pagination
 
 `GET /jobs` uses stable newest-first ordering:
@@ -226,6 +248,7 @@ HTTP status codes represent transport outcomes only:
 
 - `400` invalid JSON, invalid params, or missing required fields
 - `404` missing job, missing group target, or unknown `beforeJobId`
+- `409` conflicting local group registration data
 - `405` wrong method
 - `500` handler/transport failure
 
@@ -255,6 +278,7 @@ Runtime/provider failures do not become transport failures. They remain visible 
 - honest `queued/running/succeeded/failed` lifecycle
 - real thread reuse when the selected runtime allows it
 - job-specific log retrieval when a log file exists
+- immediate group availability after successful `PUT /groups/:groupFolder` without restart
 - no reintroduction of Claude remote-control concepts
 - a small local HTTP boundary for future `Andrea_NanoBot` integration
 
@@ -262,6 +286,7 @@ Runtime/provider failures do not become transport failures. They remain visible 
 
 - `openai_cloud` still requires `OPENAI_API_KEY` or a compatible gateway token
 - the HTTP boundary is local-only, opt-in, and unauthenticated in this pass
+- group registration is intentionally narrow and mirrors `Andrea_NanoBot`'s existing group context truth; it is not a public group-management API
 - there is still no public deployment surface, auth layer, or broader transport framework
 - there is no separate session browser yet; callers use `jobId`, `threadId`, and `listJobs`
 - `/runtime-artifacts` remains deferred

@@ -31,6 +31,7 @@ This pass does **not** merge the repos. It defines the clean boundary between th
 - the orchestration request/response model in [ORCHESTRATION_CONTRACT.md](ORCHESTRATION_CONTRACT.md)
 - the loopback HTTP routes:
   - `GET /meta`
+  - `PUT /groups/:groupFolder`
   - `POST /jobs`
   - `POST /jobs/:jobId/followup`
   - `GET /jobs`
@@ -45,6 +46,19 @@ This pass does **not** merge the repos. It defines the clean boundary between th
 - the truth that `codex_local` is primary and `openai_cloud` is conditional
 - `jobId` as the primary backend handle
 - `threadId` as returned continuity metadata only
+
+## First-Run Bootstrap
+
+`Andrea_NanoBot` remains the source of truth for chat and group context. When it sees a missing-group `404` for `POST /jobs`, it can now mirror its existing registered-group metadata into `Andrea_OpenAI_Bot` with:
+
+- `PUT /groups/:groupFolder`
+
+That route is intentionally local-only and narrow:
+
+- it exists only to bootstrap the backend workspace for a known NanoBot group
+- it is idempotent for equivalent metadata
+- it returns a conflict instead of silently overwriting mismatched existing registrations
+- it is not a general-purpose group admin API
 
 ## What Is Intentionally Deferred
 

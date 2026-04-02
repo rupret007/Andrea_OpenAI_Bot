@@ -1,5 +1,10 @@
 import { createServer, type IncomingMessage, type Server } from 'http';
 
+import {
+  RegisteredGroupConflictError,
+  type LoopbackGroupRegistrationRequest,
+  type LoopbackGroupRegistrationResult,
+} from './group-registration.js';
 import { logger } from './logger.js';
 import type { RuntimeOrchestrationService } from './runtime-orchestration.js';
 import {
@@ -19,6 +24,7 @@ class HttpRouteError extends Error {
     readonly code:
       | 'validation_error'
       | 'not_found'
+      | 'conflict'
       | 'method_not_allowed'
       | 'internal_error',
     message: string,
@@ -34,6 +40,9 @@ export interface OrchestrationHttpServerOptions {
   port: number;
   service: RuntimeOrchestrationService;
   getMeta(): RuntimeBackendMeta;
+  registerGroup(
+    request: LoopbackGroupRegistrationRequest,
+  ): LoopbackGroupRegistrationResult | Promise<LoopbackGroupRegistrationResult>;
 }
 
 export interface OrchestrationHttpServerHandle {
@@ -136,7 +145,7 @@ async function readJsonBody(
     throw new HttpRouteError(
       400,
       'validation_error',
-      'POST requests must use application/json.',
+      'JSON requests must use application/json.',
     );
   }
 
@@ -194,6 +203,17 @@ function optionalTrimmedString(raw: unknown, fieldName: string): string | null {
   return trimmed ? trimmed : null;
 }
 
+function requireBoolean(raw: unknown, fieldName: string): boolean {
+  if (typeof raw !== 'boolean') {
+    throw new HttpRouteError(
+      400,
+      'validation_error',
+      `${fieldName} must be a boolean.`,
+    );
+  }
+  return raw;
+}
+
 function parsePositiveInt(
   raw: string | null,
   fieldName: string,
@@ -231,20 +251,38 @@ function parseSource(raw: unknown): OrchestrationSource {
   };
 }
 
-function decodeJobId(rawJobId: string): string {
+function rejectUnexpectedFields(
+  body: Record<string, unknown>,
+  allowedFields: string[],
+): void {
+  for (const key of Object.keys(body)) {
+    if (!allowedFields.includes(key)) {
+      throw new HttpRouteError(
+        400,
+        'validation_error',
+        `Unexpected field "${key}" is not supported on this route.`,
+      );
+    }
+  }
+}
+
+function decodePathSegment(rawValue: string, fieldName: string): string {
   try {
-    return decodeURIComponent(rawJobId);
+    return decodeURIComponent(rawValue);
   } catch {
     throw new HttpRouteError(
       400,
       'validation_error',
-      'jobId is not a valid path segment.',
+      `${fieldName} is not a valid path segment.`,
     );
   }
 }
 
 function classifyServiceError(err: unknown): HttpRouteError {
   if (err instanceof HttpRouteError) return err;
+  if (err instanceof RegisteredGroupConflictError) {
+    return new HttpRouteError(409, 'conflict', err.message);
+  }
 
   const message = err instanceof Error ? err.message : String(err);
 
@@ -277,6 +315,53 @@ async function handleRequest(
   const method = req.method || 'GET';
   const url = new URL(req.url || '/', 'http://127.0.0.1');
   const pathname = url.pathname;
+
+  const groupMatch = pathname.match(/^\/groups\/([^/]+)$/);
+  if (groupMatch) {
+    if (method !== 'PUT') {
+      throw new HttpRouteError(
+        405,
+        'method_not_allowed',
+        `Method not allowed for ${pathname}.`,
+        'PUT',
+      );
+    }
+
+    const groupFolder = requireNonEmptyString(
+      decodePathSegment(groupMatch[1] || '', 'groupFolder'),
+      'groupFolder',
+    );
+    const body = await readJsonBody(req, { required: true });
+    if (!body) {
+      throw new HttpRouteError(
+        500,
+        'internal_error',
+        'JSON body unexpectedly missing.',
+      );
+    }
+
+    rejectUnexpectedFields(body, [
+      'jid',
+      'name',
+      'trigger',
+      'addedAt',
+      'requiresTrigger',
+      'isMain',
+    ]);
+
+    const result = await options.registerGroup({
+      jid: requireNonEmptyString(body.jid, 'jid'),
+      name: requireNonEmptyString(body.name, 'name'),
+      folder: groupFolder,
+      trigger: requireNonEmptyString(body.trigger, 'trigger'),
+      addedAt: requireNonEmptyString(body.addedAt, 'addedAt'),
+      requiresTrigger: requireBoolean(body.requiresTrigger, 'requiresTrigger'),
+      isMain: requireBoolean(body.isMain, 'isMain'),
+    });
+
+    writeJson(res, result.created ? 201 : 200, result);
+    return;
+  }
 
   if (pathname === '/meta') {
     if (method !== 'GET') {
@@ -364,7 +449,7 @@ async function handleRequest(
         'JSON body unexpectedly missing.',
       );
     }
-    const jobId = decodeJobId(followUpMatch[1] || '');
+    const jobId = decodePathSegment(followUpMatch[1] || '', 'jobId');
     const job = await options.service.followUp({
       jobId,
       prompt: requireNonEmptyString(body.prompt, 'prompt'),
@@ -385,7 +470,7 @@ async function handleRequest(
       );
     }
 
-    const jobId = decodeJobId(logsMatch[1] || '');
+    const jobId = decodePathSegment(logsMatch[1] || '', 'jobId');
     const result = options.service.getJobLogs({
       jobId,
       lines: parsePositiveInt(url.searchParams.get('lines'), 'lines'),
@@ -406,7 +491,7 @@ async function handleRequest(
     }
 
     const body = await readJsonBody(req, { required: false });
-    const jobId = decodeJobId(stopMatch[1] || '');
+    const jobId = decodePathSegment(stopMatch[1] || '', 'jobId');
     const result = await options.service.stopJob({
       jobId,
       source: body?.source ? parseSource(body.source) : undefined,
@@ -429,7 +514,7 @@ async function handleRequest(
       );
     }
 
-    const jobId = decodeJobId(jobMatch[1] || '');
+    const jobId = decodePathSegment(jobMatch[1] || '', 'jobId');
     const job = options.service.getJob(jobId);
     if (!job) {
       throw new HttpRouteError(

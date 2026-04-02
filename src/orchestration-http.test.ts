@@ -1,10 +1,15 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   _closeDatabase,
   _initTestDatabase,
   createRuntimeOrchestrationJob,
+  setRegisteredGroup,
 } from './db.js';
+import { ensureLoopbackRegisteredGroup } from './group-registration.js';
 import {
   startOrchestrationHttpServer,
   type OrchestrationHttpServerHandle,
@@ -24,9 +29,11 @@ interface TestHarness {
   baseUrl: string;
   server: OrchestrationHttpServerHandle;
   service: ReturnType<typeof createRuntimeOrchestrationService>;
+  tempDir: string;
   queuedTasks: Map<string, () => Promise<void>>;
   runContainerAgent: ReturnType<typeof vi.fn>;
   requestStop: ReturnType<typeof vi.fn>;
+  ensureOneClIAgent: ReturnType<typeof vi.fn>;
   runtimeJobs: Array<{
     groupJid: string;
     active: boolean;
@@ -39,6 +46,7 @@ interface TestHarness {
     groupFolder: string | null;
     retryCount: number;
   }>;
+  registeredGroupsByJid: Record<string, RegisteredGroup>;
 }
 
 const mainGroup: RegisteredGroup = {
@@ -59,11 +67,32 @@ const otherGroup: RegisteredGroup = {
 async function buildHarness(
   overrides: Partial<RuntimeOrchestrationServiceDependencies> = {},
   meta: { ready?: boolean; version?: string | null } = {},
+  options: {
+    initialGroups?: Record<string, RegisteredGroup>;
+  } = {},
 ): Promise<TestHarness> {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'andrea-http-test-'));
+  const groupsDir = path.join(tempDir, 'groups');
+  fs.mkdirSync(path.join(groupsDir, 'main'), { recursive: true });
+  fs.mkdirSync(path.join(groupsDir, 'global'), { recursive: true });
+  fs.writeFileSync(
+    path.join(groupsDir, 'main', 'CLAUDE.md'),
+    '# Andrea\n\nYou are Andrea.\n',
+  );
+  fs.writeFileSync(
+    path.join(groupsDir, 'global', 'CLAUDE.md'),
+    '# Andrea\n\nYou are Andrea.\n',
+  );
+
   const queuedTasks = new Map<string, () => Promise<void>>();
   const runtimeJobs: TestHarness['runtimeJobs'] = [];
   const sessions: Record<string, string | undefined> = {};
   const storedThreads: Record<string, AgentThreadState | undefined> = {};
+  const registeredGroupsByJid: Record<string, RegisteredGroup> = {
+    'tg:main': mainGroup,
+    'tg:other': otherGroup,
+    ...(options.initialGroups || {}),
+  };
 
   const runContainerAgent = vi.fn(async () => ({
     status: 'success' as const,
@@ -72,6 +101,7 @@ async function buildHarness(
     runtime: 'codex_local' as const,
   }));
   const requestStop = vi.fn(() => true);
+  const ensureOneClIAgent = vi.fn();
 
   const deps: RuntimeOrchestrationServiceDependencies = {
     assistantName: 'Andrea',
@@ -108,11 +138,11 @@ async function buildHarness(
     registerProcess() {},
     requestStop,
     resolveGroupByFolder(folder) {
-      if (folder === mainGroup.folder) {
-        return { jid: 'tg:main', group: mainGroup };
-      }
-      if (folder === otherGroup.folder) {
-        return { jid: 'tg:other', group: otherGroup };
+      const match = Object.entries(registeredGroupsByJid).find(
+        ([, group]) => group.folder === folder,
+      );
+      if (match) {
+        return { jid: match[0], group: match[1] };
       }
       return null;
     },
@@ -135,16 +165,31 @@ async function buildHarness(
         ready: meta.ready ?? true,
       };
     },
+    registerGroup(request) {
+      return ensureLoopbackRegisteredGroup(request, {
+        assistantName: 'Andrea',
+        groupsDir,
+        registeredGroups: registeredGroupsByJid,
+        persistGroup(jid, group) {
+          registeredGroupsByJid[jid] = group;
+          setRegisteredGroup(jid, group);
+        },
+        ensureOneClIAgent,
+      });
+    },
   });
 
   return {
     baseUrl: `http://${server.host}:${server.port}`,
     server,
     service,
+    tempDir,
     queuedTasks,
     runContainerAgent,
     requestStop,
+    ensureOneClIAgent,
     runtimeJobs,
+    registeredGroupsByJid,
   };
 }
 
@@ -157,6 +202,9 @@ describe('orchestration http server', () => {
 
   afterEach(async () => {
     await harness?.server.close();
+    if (harness?.tempDir) {
+      fs.rmSync(harness.tempDir, { recursive: true, force: true });
+    }
     harness = null;
     _closeDatabase();
   });
@@ -213,6 +261,195 @@ describe('orchestration http server', () => {
     expect(body.job.actorId).toBe('user-1');
   });
 
+  it('registers a new group through PUT /groups/:groupFolder', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(
+      `${harness.baseUrl}/groups/bootstrap-proof-a`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jid: 'tg:bootstrap-a',
+          name: 'Bootstrap Proof A',
+          trigger: '@Andrea',
+          addedAt: '2026-04-02T00:00:00.000Z',
+          requiresTrigger: true,
+          isMain: false,
+        }),
+      },
+    );
+    const body = (await response.json()) as {
+      created: boolean;
+      group: {
+        jid: string;
+        name: string;
+        folder: string;
+        trigger: string;
+        addedAt: string;
+        requiresTrigger: boolean;
+        isMain: boolean;
+      };
+    };
+
+    expect(response.status).toBe(201);
+    expect(body).toEqual({
+      created: true,
+      group: {
+        jid: 'tg:bootstrap-a',
+        name: 'Bootstrap Proof A',
+        folder: 'bootstrap-proof-a',
+        trigger: '@Andrea',
+        addedAt: '2026-04-02T00:00:00.000Z',
+        requiresTrigger: true,
+        isMain: false,
+      },
+    });
+    expect(harness.registeredGroupsByJid['tg:bootstrap-a']).toMatchObject({
+      folder: 'bootstrap-proof-a',
+      name: 'Bootstrap Proof A',
+    });
+    expect(harness.ensureOneClIAgent).toHaveBeenCalledWith(
+      'tg:bootstrap-a',
+      expect.objectContaining({
+        folder: 'bootstrap-proof-a',
+      }),
+    );
+  });
+
+  it('treats identical group registration as idempotent success', async () => {
+    harness = await buildHarness();
+
+    const firstResponse = await fetch(
+      `${harness.baseUrl}/groups/bootstrap-proof-b`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jid: 'tg:bootstrap-b',
+          name: 'Bootstrap Proof B',
+          trigger: '@Andrea',
+          addedAt: '2026-04-02T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: false,
+        }),
+      },
+    );
+    expect(firstResponse.status).toBe(201);
+
+    const secondResponse = await fetch(
+      `${harness.baseUrl}/groups/bootstrap-proof-b`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jid: 'tg:bootstrap-b',
+          name: 'Bootstrap Proof B',
+          trigger: '@Andrea',
+          addedAt: '2026-04-03T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: false,
+        }),
+      },
+    );
+    const secondBody = (await secondResponse.json()) as {
+      created: boolean;
+      group: { addedAt: string };
+    };
+
+    expect(secondResponse.status).toBe(200);
+    expect(secondBody.created).toBe(false);
+    expect(secondBody.group.addedAt).toBe('2026-04-02T00:00:00.000Z');
+  });
+
+  it('returns 409 when folder metadata conflicts with an existing group', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(`${harness.baseUrl}/groups/main`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jid: 'tg:main',
+        name: 'Different Main',
+        trigger: '@Andrea',
+        addedAt: '2026-04-02T00:00:00.000Z',
+        requiresTrigger: true,
+        isMain: true,
+      }),
+    });
+    const body = (await response.json()) as {
+      error: { code: string; message: string };
+    };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('conflict');
+    expect(body.error.message).toContain('different metadata');
+  });
+
+  it('returns 409 when a jid is already mapped to another folder', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(`${harness.baseUrl}/groups/main-duplicate`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jid: 'tg:main',
+        name: 'Main Duplicate',
+        trigger: '@Andrea',
+        addedAt: '2026-04-02T00:00:00.000Z',
+        requiresTrigger: true,
+        isMain: false,
+      }),
+    });
+    const body = (await response.json()) as {
+      error: { code: string; message: string };
+    };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('conflict');
+    expect(body.error.message).toContain('already mapped to folder');
+  });
+
+  it('returns 400 for invalid group registration bodies', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(
+      `${harness.baseUrl}/groups/bootstrap-proof-c`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jid: 'tg:bootstrap-c',
+          name: 'Bootstrap Proof C',
+          trigger: '@Andrea',
+          addedAt: '2026-04-02T00:00:00.000Z',
+          requiresTrigger: 'true',
+          isMain: false,
+          containerConfig: {},
+        }),
+      },
+    );
+    const body = (await response.json()) as {
+      error: { code: string; message: string };
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe('validation_error');
+    expect(body.error.message).toContain('Unexpected field');
+  });
+
+  it('returns 405 for unsupported methods on /groups/:groupFolder', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(`${harness.baseUrl}/groups/bootstrap-proof-d`);
+    const body = (await response.json()) as {
+      error: { code: string };
+    };
+
+    expect(response.status).toBe(405);
+    expect(body.error.code).toBe('method_not_allowed');
+  });
+
   it('returns 404 when POST /jobs targets an unknown group', async () => {
     harness = await buildHarness();
 
@@ -236,6 +473,115 @@ describe('orchestration http server', () => {
     expect(response.status).toBe(404);
     expect(body.error.code).toBe('not_found');
     expect(body.error.message).toContain('missing');
+  });
+
+  it('supports missing-group then register then create-job without restart', async () => {
+    harness = await buildHarness({}, {}, { initialGroups: {} });
+    const logFile = path.join(harness.tempDir, 'bootstrap-proof.log');
+    fs.writeFileSync(logFile, 'bootstrap log line 1\nbootstrap log line 2\n');
+    harness.runContainerAgent.mockImplementation(async () => ({
+      status: 'success' as const,
+      result: 'bootstrapped ok',
+      newSessionId: 'thread-bootstrap',
+      runtime: 'codex_local' as const,
+      logFile,
+    }));
+
+    const createBeforeRegister = await fetch(`${harness.baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        groupFolder: 'bootstrap-proof-live',
+        prompt: 'Write a bootstrap proof.',
+        source: { system: 'nanobot' },
+      }),
+    });
+    expect(createBeforeRegister.status).toBe(404);
+
+    const registerResponse = await fetch(
+      `${harness.baseUrl}/groups/bootstrap-proof-live`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jid: 'tg:bootstrap-live',
+          name: 'Bootstrap Live',
+          trigger: '@Andrea',
+          addedAt: '2026-04-02T00:00:00.000Z',
+          requiresTrigger: true,
+          isMain: false,
+        }),
+      },
+    );
+    expect(registerResponse.status).toBe(201);
+
+    const createAfterRegister = await fetch(`${harness.baseUrl}/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        groupFolder: 'bootstrap-proof-live',
+        prompt: 'Write a bootstrap proof.',
+        source: { system: 'nanobot', actorType: 'operator' },
+      }),
+    });
+    const created = (await createAfterRegister.json()) as {
+      job: RuntimeBackendJob;
+    };
+    expect(createAfterRegister.status).toBe(202);
+
+    await harness.queuedTasks.get(created.job.jobId)!();
+
+    const getCreated = await fetch(
+      `${harness.baseUrl}/jobs/${encodeURIComponent(created.job.jobId)}`,
+    );
+    const createdJob = (await getCreated.json()) as { job: RuntimeBackendJob };
+    expect(getCreated.status).toBe(200);
+    expect(createdJob.job.status).toBe('succeeded');
+    expect(createdJob.job.threadId).toBe('thread-bootstrap');
+
+    const followResponse = await fetch(
+      `${harness.baseUrl}/jobs/${encodeURIComponent(created.job.jobId)}/followup`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: 'Please continue.',
+          source: { system: 'nanobot' },
+        }),
+      },
+    );
+    const followed = (await followResponse.json()) as {
+      job: RuntimeBackendJob;
+    };
+    expect(followResponse.status).toBe(202);
+    expect(followed.job.parentJobId).toBe(created.job.jobId);
+
+    const logsResponse = await fetch(
+      `${harness.baseUrl}/jobs/${encodeURIComponent(created.job.jobId)}/logs`,
+    );
+    const logsBody = (await logsResponse.json()) as {
+      jobId: string;
+      logText: string | null;
+      logFile: string | null;
+      lines: number;
+    };
+    expect(logsResponse.status).toBe(200);
+    expect(logsBody.jobId).toBe(created.job.jobId);
+    expect(logsBody.logFile).toBe(logFile);
+    expect(logsBody.logText).toContain('bootstrap log line 2');
+
+    const stopResponse = await fetch(
+      `${harness.baseUrl}/jobs/${encodeURIComponent(followed.job.jobId)}/stop`,
+      {
+        method: 'POST',
+      },
+    );
+    const stopped = (await stopResponse.json()) as {
+      job: RuntimeBackendJob;
+      liveStopAccepted: boolean;
+    };
+    expect(stopResponse.status).toBe(200);
+    expect(stopped.job.stopRequested).toBe(true);
   });
 
   it('accepts follow-up for an existing job', async () => {

@@ -71,6 +71,10 @@ import {
 } from './operator-command-gate.js';
 import { dispatchRuntimeCommand } from './runtime-commands.js';
 import {
+  ensureLoopbackRegisteredGroup,
+  registerGroupOrThrow,
+} from './group-registration.js';
+import {
   createRuntimeOrchestrationService,
   executeRuntimeTurn,
 } from './runtime-orchestration.js';
@@ -200,51 +204,29 @@ function persistAgentThread(
   setAgentThread(thread);
 }
 
-function registerGroup(jid: string, group: RegisteredGroup): void {
-  let groupDir: string;
+function getGroupRegistrationDependencies() {
+  return {
+    assistantName: ASSISTANT_NAME,
+    groupsDir: GROUPS_DIR,
+    registeredGroups,
+    persistGroup: setRegisteredGroup,
+    ensureOneClIAgent: ensureOneCLIAgent,
+  };
+}
+
+function registerGroupOrLog(jid: string, group: RegisteredGroup): void {
   try {
-    groupDir = resolveGroupFolderPath(group.folder);
+    registerGroupOrThrow(jid, group, getGroupRegistrationDependencies());
   } catch (err) {
     logger.warn(
       { jid, folder: group.folder, err },
       'Rejecting group registration with invalid folder',
     );
-    return;
   }
+}
 
-  registeredGroups[jid] = group;
-  setRegisteredGroup(jid, group);
-
-  // Create group folder
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-
-  // Copy CLAUDE.md template into the new group folder so agents have
-  // identity and instructions from the first run.  (Fixes #1391)
-  const groupMdFile = path.join(groupDir, 'CLAUDE.md');
-  if (!fs.existsSync(groupMdFile)) {
-    const templateFile = path.join(
-      GROUPS_DIR,
-      group.isMain ? 'main' : 'global',
-      'CLAUDE.md',
-    );
-    if (fs.existsSync(templateFile)) {
-      let content = fs.readFileSync(templateFile, 'utf-8');
-      if (ASSISTANT_NAME !== 'Andy') {
-        content = content.replace(/^# Andy$/m, `# ${ASSISTANT_NAME}`);
-        content = content.replace(/You are Andy/g, `You are ${ASSISTANT_NAME}`);
-      }
-      fs.writeFileSync(groupMdFile, content);
-      logger.info({ folder: group.folder }, 'Created CLAUDE.md from template');
-    }
-  }
-
-  // Ensure a corresponding OneCLI agent exists (best-effort, non-blocking)
-  ensureOneCLIAgent(jid, group);
-
-  logger.info(
-    { jid, name: group.name, folder: group.folder },
-    'Group registered',
-  );
+function registerGroup(jid: string, group: RegisteredGroup): void {
+  registerGroupOrLog(jid, group);
 }
 
 /**
@@ -740,6 +722,20 @@ async function main(): Promise<void> {
       port: ORCHESTRATION_HTTP_PORT,
       service: orchestrationService,
       getMeta: getOrchestrationHttpMeta,
+      registerGroup(request) {
+        return ensureLoopbackRegisteredGroup(
+          {
+            jid: request.jid,
+            name: request.name,
+            folder: request.folder,
+            trigger: request.trigger,
+            addedAt: request.addedAt,
+            requiresTrigger: request.requiresTrigger,
+            isMain: request.isMain,
+          },
+          getGroupRegistrationDependencies(),
+        );
+      },
     });
     logger.info(
       {

@@ -156,6 +156,7 @@ This is the clean backend lane that `Andrea_NanoBot` can call later without pull
 HTTP surface:
 
 - `GET /meta`
+- `PUT /groups/:groupFolder`
 - `POST /jobs`
 - `POST /jobs/:jobId/followup`
 - `GET /jobs`
@@ -179,6 +180,7 @@ What this means:
 - `jobId` is the primary opaque backend handle
 - `threadId` is returned continuity metadata, not primary frontend state
 - the HTTP wrapper is local-only, opt-in, and not a public network API
+- `PUT /groups/:groupFolder` exists only so `Andrea_NanoBot` can self-heal first-run workspace bootstrap on loopback before retrying `POST /jobs`
 - `openai_cloud` remains conditional on `OPENAI_API_KEY`
 
 Optional local backend mode:

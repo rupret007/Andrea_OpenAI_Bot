@@ -241,7 +241,9 @@ export function _initTestDatabase(): void {
 
 /** @internal - for tests only. */
 export function _closeDatabase(): void {
-  db.close();
+  if (db) {
+    db.close();
+  }
 }
 
 /**
