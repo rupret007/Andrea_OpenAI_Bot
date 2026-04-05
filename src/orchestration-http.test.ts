@@ -281,7 +281,9 @@ describe('orchestration http server', () => {
         source: { system: 'nanobot' },
       }),
     });
-    const followed = (await followResponse.json()) as { job: RuntimeBackendJob };
+    const followed = (await followResponse.json()) as {
+      job: RuntimeBackendJob;
+    };
 
     expect(followResponse.status).toBe(202);
     expect(followed.job.kind).toBe('follow_up');
