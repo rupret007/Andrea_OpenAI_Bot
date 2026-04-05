@@ -66,7 +66,18 @@ const otherGroup: RegisteredGroup = {
 
 async function buildHarness(
   overrides: Partial<RuntimeOrchestrationServiceDependencies> = {},
-  meta: { ready?: boolean; version?: string | null } = {},
+  meta: {
+    ready?: boolean;
+    version?: string | null;
+    localExecutionState?:
+      | 'available_authenticated'
+      | 'available_auth_required'
+      | 'not_ready'
+      | 'unavailable';
+    authState?: 'authenticated' | 'auth_required' | 'unknown';
+    localExecutionDetail?: string | null;
+    operatorGuidance?: string | null;
+  } = {},
   options: {
     initialGroups?: Record<string, RegisteredGroup>;
   } = {},
@@ -117,6 +128,7 @@ async function buildHarness(
     getRuntimeJobs() {
       return runtimeJobs;
     },
+    closeStdin() {},
     getSession(groupFolder) {
       return sessions[groupFolder];
     },
@@ -163,6 +175,13 @@ async function buildHarness(
         enabled: true,
         version: meta.version ?? '1.2.42',
         ready: meta.ready ?? true,
+        localExecutionState:
+          meta.localExecutionState ?? 'available_authenticated',
+        authState: meta.authState ?? 'authenticated',
+        localExecutionDetail:
+          meta.localExecutionDetail ??
+          'Codex local execution is authenticated and the container runtime is ready.',
+        operatorGuidance: meta.operatorGuidance ?? null,
       };
     },
     registerGroup(request) {
@@ -219,6 +238,10 @@ describe('orchestration http server', () => {
       enabled: boolean;
       version: string | null;
       ready: boolean;
+      localExecutionState: string;
+      authState: string;
+      localExecutionDetail: string | null;
+      operatorGuidance: string | null;
     };
 
     expect(response.status).toBe(200);
@@ -228,7 +251,41 @@ describe('orchestration http server', () => {
       enabled: true,
       version: '1.2.42',
       ready: true,
+      localExecutionState: 'available_authenticated',
+      authState: 'authenticated',
+      localExecutionDetail:
+        'Codex local execution is authenticated and the container runtime is ready.',
+      operatorGuidance: null,
     });
+  });
+
+  it('accepts generic follow-up targets through POST /followups', async () => {
+    harness = await buildHarness({
+      getStoredThread() {
+        return {
+          group_folder: 'main',
+          runtime: 'codex_local',
+          thread_id: 'thread-existing',
+          last_response_id: 'thread-existing',
+          updated_at: '2026-04-02T00:00:00.000Z',
+        };
+      },
+    });
+
+    const followResponse = await fetch(`${harness.baseUrl}/followups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        groupFolder: 'main',
+        prompt: 'Add one more line.',
+        source: { system: 'nanobot' },
+      }),
+    });
+    const followed = (await followResponse.json()) as { job: RuntimeBackendJob };
+
+    expect(followResponse.status).toBe(202);
+    expect(followed.job.kind).toBe('follow_up');
+    expect(followed.job.groupFolder).toBe('main');
   });
 
   it('creates jobs successfully through POST /jobs', async () => {

@@ -101,6 +101,7 @@ export interface RuntimeExecutionResult {
 
 export interface RuntimeOrchestrationServiceDependencies extends RuntimeExecutionDependencies {
   enqueueJob(groupJid: string, jobId: string, fn: () => Promise<void>): void;
+  closeStdin(groupJid: string): void;
   getRuntimeJobs(): QueueRuntimeJobSnapshot[];
   notifyIdle(groupJid: string): void;
   requestStop(groupJid: string): boolean;
@@ -136,6 +137,7 @@ const MAX_JOB_LIST_LIMIT = 100;
 const DEFAULT_LOG_LINES = 40;
 const MAX_LOG_LINES = 120;
 const MAX_PROMPT_PREVIEW = 160;
+const RUNTIME_JOB_CLOSE_DELAY_MS = 10_000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -526,6 +528,14 @@ async function runOrchestrationJob(
 
   let latestOutputText: string | null =
     getRuntimeOrchestrationJob(jobId)?.latestOutputText || null;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleClose = () => {
+    if (closeTimer) return;
+    closeTimer = setTimeout(() => {
+      logger.debug({ jobId }, 'Closing runtime job container after result');
+      deps.closeStdin(executionTarget.jid);
+    }, RUNTIME_JOB_CLOSE_DELAY_MS);
+  };
 
   try {
     const result = await executeRuntimeTurn(deps, {
@@ -539,10 +549,12 @@ async function runOrchestrationJob(
       onOutput: async (output) => {
         if (output.result !== null) {
           latestOutputText = output.result;
+          scheduleClose();
         }
 
         if (output.status === 'success') {
           deps.notifyIdle(executionTarget.jid);
+          scheduleClose();
         }
 
         updateRuntimeOrchestrationJob(jobId, {
@@ -556,6 +568,7 @@ async function runOrchestrationJob(
         });
       },
     });
+    if (closeTimer) clearTimeout(closeTimer);
 
     const finishedAt = nowIso();
     if (result.output.status === 'error') {

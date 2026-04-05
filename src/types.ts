@@ -204,12 +204,27 @@ export interface RuntimeBackendJobList {
   nextBeforeJobId?: string | null;
 }
 
+export type RuntimeBackendAuthState =
+  | 'authenticated'
+  | 'auth_required'
+  | 'unknown';
+
+export type RuntimeBackendLocalExecutionState =
+  | 'available_authenticated'
+  | 'available_auth_required'
+  | 'not_ready'
+  | 'unavailable';
+
 export interface RuntimeBackendMeta {
   backend: typeof ORCHESTRATION_BACKEND_ID;
   transport: 'http';
   enabled: true;
   version: string | null;
   ready: boolean;
+  localExecutionState: RuntimeBackendLocalExecutionState;
+  authState: RuntimeBackendAuthState;
+  localExecutionDetail: string | null;
+  operatorGuidance: string | null;
 }
 
 // --- Channel abstraction ---

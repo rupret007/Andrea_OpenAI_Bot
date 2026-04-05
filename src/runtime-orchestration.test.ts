@@ -23,6 +23,7 @@ interface TestHarness {
   service: ReturnType<typeof createRuntimeOrchestrationService>;
   queuedTasks: Map<string, () => Promise<void>>;
   runContainerAgent: ReturnType<typeof vi.fn>;
+  closeStdin: ReturnType<typeof vi.fn>;
   persistAgentThread: ReturnType<typeof vi.fn>;
   requestStop: ReturnType<typeof vi.fn>;
   notifyIdle: ReturnType<typeof vi.fn>;
@@ -89,6 +90,7 @@ function buildHarness(
     newSessionId: 'thread-default',
     runtime: 'codex_local' as const,
   }));
+  const closeStdin = vi.fn();
   const requestStop = vi.fn(() => true);
   const notifyIdle = vi.fn();
 
@@ -106,6 +108,7 @@ function buildHarness(
     getRuntimeJobs() {
       return runtimeJobs;
     },
+    closeStdin,
     getSession(groupFolder) {
       return sessions[groupFolder];
     },
@@ -135,6 +138,7 @@ function buildHarness(
     service: createRuntimeOrchestrationService(deps),
     queuedTasks,
     runContainerAgent,
+    closeStdin,
     persistAgentThread,
     requestStop,
     notifyIdle,
@@ -176,6 +180,7 @@ describe('runtime orchestration service', () => {
   });
 
   it('transitions a queued job through running to succeeded', async () => {
+    vi.useFakeTimers();
     let releaseRun: (() => void) | undefined;
     const runBlocked = new Promise<void>((resolve) => {
       releaseRun = resolve;
@@ -217,6 +222,7 @@ describe('runtime orchestration service', () => {
     await runningPromise;
 
     expect(harness.service.getJob(job.jobId)?.status).toBe('running');
+    await vi.advanceTimersByTimeAsync(10_000);
 
     releaseRun?.();
     await runPromise;
@@ -234,6 +240,7 @@ describe('runtime orchestration service', () => {
       'codex_local',
     );
     expect(harness.notifyIdle).toHaveBeenCalledWith('tg:main');
+    expect(harness.closeStdin).toHaveBeenCalledWith('tg:main');
   });
 
   it('records honest runtime failures including openai_cloud credential errors', async () => {

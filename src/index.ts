@@ -91,6 +91,8 @@ import {
   Channel,
   NewMessage,
   RegisteredGroup,
+  type RuntimeBackendAuthState,
+  type RuntimeBackendLocalExecutionState,
 } from './types.js';
 import { logger } from './logger.js';
 
@@ -295,6 +297,9 @@ function getRuntimeServiceDependencies() {
     getRuntimeJobs() {
       return queue.getRuntimeJobs();
     },
+    closeStdin(groupJid: string) {
+      queue.closeStdin(groupJid);
+    },
     getSession(groupFolder: string) {
       return sessions[groupFolder];
     },
@@ -340,12 +345,40 @@ function getRuntimeStatusSnapshot() {
 
 function getOrchestrationHttpMeta() {
   const snapshot = getRuntimeStatusSnapshot();
-  const localReady =
-    snapshot.codexLocalReady &&
-    isContainerRuntimeExecutionCapable(
-      CONTAINER_RUNTIME_NAME,
-      snapshot.containerRuntimeStatus,
-    );
+  const containerExecutionCapable = isContainerRuntimeExecutionCapable(
+    CONTAINER_RUNTIME_NAME,
+    snapshot.containerRuntimeStatus,
+  );
+  const localReady = snapshot.codexLocalReady && containerExecutionCapable;
+  const localExecutionState: RuntimeBackendLocalExecutionState = localReady
+    ? 'available_authenticated'
+    : !snapshot.codexLocalEnabled
+      ? 'unavailable'
+      : !containerExecutionCapable
+        ? 'not_ready'
+        : snapshot.hostCodexAuthPresent || snapshot.openAiApiKeyPresent
+          ? 'not_ready'
+          : 'available_auth_required';
+  const authState: RuntimeBackendAuthState =
+    localExecutionState === 'available_authenticated'
+      ? 'authenticated'
+      : localExecutionState === 'available_auth_required'
+        ? 'auth_required'
+        : 'unknown';
+  const localExecutionDetail =
+    localExecutionState === 'available_authenticated'
+      ? 'Codex local execution is authenticated and the container runtime is ready.'
+      : localExecutionState === 'available_auth_required'
+        ? 'Codex local execution is reachable on this host, but no usable Codex login or OPENAI_API_KEY is available yet.'
+        : localExecutionState === 'not_ready'
+          ? `Codex local execution is not ready because ${CONTAINER_RUNTIME_NAME} is ${snapshot.containerRuntimeStatus}.`
+          : 'Codex local execution is disabled in this backend runtime.';
+  const operatorGuidance =
+    localExecutionState === 'available_auth_required'
+      ? 'Run codex login on the Andrea_OpenAI_Bot host, or provide OPENAI_API_KEY before retrying codex_local work.'
+      : localExecutionState === 'not_ready'
+        ? `Start or repair ${CONTAINER_RUNTIME_NAME}, then retry the Codex/OpenAI runtime lane.`
+        : null;
 
   return {
     backend: 'andrea_openai' as const,
@@ -353,6 +386,10 @@ function getOrchestrationHttpMeta() {
     enabled: true as const,
     version: packageVersion,
     ready: localReady || snapshot.openAiCloudReady,
+    localExecutionState,
+    authState,
+    localExecutionDetail,
+    operatorGuidance,
   };
 }
 
@@ -829,7 +866,7 @@ async function main(): Promise<void> {
     logger.warn(
       'No channels connected; continuing in loopback orchestration HTTP-only mode.',
     );
-    return;
+    await new Promise<void>(() => {});
   }
 
   // Start subsystems (independently of connection handler)

@@ -430,6 +430,45 @@ async function handleRequest(
     );
   }
 
+  if (pathname === '/followups') {
+    if (method !== 'POST') {
+      throw new HttpRouteError(
+        405,
+        'method_not_allowed',
+        'Method not allowed for /followups.',
+        'POST',
+      );
+    }
+
+    const body = await readJsonBody(req, { required: true });
+    if (!body) {
+      throw new HttpRouteError(
+        500,
+        'internal_error',
+        'JSON body unexpectedly missing.',
+      );
+    }
+
+    rejectUnexpectedFields(body, [
+      'prompt',
+      'source',
+      'jobId',
+      'threadId',
+      'groupFolder',
+    ]);
+
+    const job = await options.service.followUp({
+      prompt: requireNonEmptyString(body.prompt, 'prompt'),
+      source: parseSource(body.source),
+      jobId: optionalTrimmedString(body.jobId, 'jobId') || undefined,
+      threadId: optionalTrimmedString(body.threadId, 'threadId') || undefined,
+      groupFolder:
+        optionalTrimmedString(body.groupFolder, 'groupFolder') || undefined,
+    });
+    writeJson(res, 202, { job: toRuntimeBackendJob(job) });
+    return;
+  }
+
   const followUpMatch = pathname.match(/^\/jobs\/([^/]+)\/followup$/);
   if (followUpMatch) {
     if (method !== 'POST') {
