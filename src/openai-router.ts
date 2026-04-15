@@ -30,9 +30,7 @@ function extractResponseOutputText(payload: unknown): string {
   const parts: string[] = [];
   for (const item of output) {
     const itemRecord =
-      item && typeof item === 'object'
-        ? (item as Record<string, unknown>)
-        : {};
+      item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
     const content = Array.isArray(itemRecord.content) ? itemRecord.content : [];
     for (const chunk of content) {
       const chunkRecord =
@@ -153,7 +151,7 @@ function getRouterConfig(): {
 
 function buildRouterPrompt(input: RoutePromptRequest): string {
   return [
-    'You are Andrea\'s routing planner for Telegram and BlueBubbles.',
+    "You are Andrea's routing planner for Telegram and BlueBubbles.",
     'Return JSON only.',
     'You never execute actions. You only select the best local route and extract lightweight arguments.',
     'Valid routeKind values: assistant_capability, direct_quick_reply, protected_assistant, clarify, unsupported.',
@@ -175,7 +173,7 @@ function buildRouterPrompt(input: RoutePromptRequest): string {
     '- research.compare',
     '- research.summarize',
     '- research.recommend',
-    'Use protected_assistant for calendar/reminder/task-style asks that should stay on Andrea\'s protected local path.',
+    "Use protected_assistant for calendar/reminder/task-style asks that should stay on Andrea's protected local path.",
     'Use direct_quick_reply for greetings, presence, thanks, and very lightweight discovery or chit-chat.',
     'Use clarify when the target thread/person/window is too ambiguous to execute safely.',
     'Use unsupported only when none of the supported local routes fit.',
@@ -240,7 +238,8 @@ export async function routeCompanionPrompt(
   return {
     routeKind: normalizeRouteKind(parsed.routeKind),
     capabilityId: normalizeText(parsed.capabilityId || undefined) || null,
-    canonicalText: normalizeText(parsed.canonicalText || undefined) || normalizedText,
+    canonicalText:
+      normalizeText(parsed.canonicalText || undefined) || normalizedText,
     arguments: normalizeArguments(parsed.arguments),
     confidence: normalizeConfidence(parsed.confidence),
     clarificationPrompt:
