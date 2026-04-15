@@ -1,8 +1,13 @@
-import { OPENAI_MODEL_FALLBACK } from './config.js';
+import {
+  buildOpenAiModelCandidates,
+  detectOpenAiProviderMode,
+  isOpenAiModelRejection,
+} from './openai-model-routing.js';
 import type {
   CompanionRouteArguments,
   CompanionRouteConfidence,
   CompanionRouteKind,
+  OpenAiModelTier,
   RoutePromptRequest,
   RoutePromptResult,
 } from './types.js';
@@ -131,7 +136,10 @@ function normalizeArguments(value: unknown): CompanionRouteArguments | null {
 function getRouterConfig(): {
   apiKey: string;
   baseUrl: string;
-  model: string;
+  simpleModel: string | null;
+  standardModel: string | null;
+  complexModel: string | null;
+  fallbackModel: string | null;
 } {
   const apiKey = normalizeText(process.env.OPENAI_API_KEY);
   if (!apiKey) {
@@ -145,7 +153,12 @@ function getRouterConfig(): {
   return {
     apiKey,
     baseUrl,
-    model: OPENAI_MODEL_FALLBACK,
+    simpleModel: normalizeText(process.env.OPENAI_MODEL_SIMPLE) || null,
+    standardModel: normalizeText(process.env.OPENAI_MODEL_STANDARD) || null,
+    complexModel: normalizeText(process.env.OPENAI_MODEL_COMPLEX) || null,
+    fallbackModel:
+      normalizeText(process.env.OPENAI_MODEL_FALLBACK) ||
+      normalizeText(process.env.OPENAI_MODEL_COMPLEX),
   };
 }
 
@@ -173,6 +186,7 @@ function buildRouterPrompt(input: RoutePromptRequest): string {
     '- research.compare',
     '- research.summarize',
     '- research.recommend',
+    'Use assistant_capability with research.topic for live-fact asks such as weather, forecast, current conditions, temperature, wind, humidity, rain, snow, headlines, latest news, or other outward lookup questions.',
     "Use protected_assistant for calendar/reminder/task-style asks that should stay on Andrea's protected local path.",
     'Use direct_quick_reply for greetings, presence, thanks, and very lightweight discovery or chit-chat.',
     'Use clarify when the target thread/person/window is too ambiguous to execute safely.',
@@ -206,44 +220,71 @@ export async function routeCompanionPrompt(
     };
   }
 
-  const response = await fetchImpl(`${config.baseUrl}/responses`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      input: buildRouterPrompt({
-        ...input,
-        text: normalizedText,
-      }),
-    }),
+  const providerMode = detectOpenAiProviderMode(config.baseUrl);
+  const prompt = buildRouterPrompt({
+    ...input,
+    text: normalizedText,
   });
+  const candidates = buildOpenAiModelCandidates('simple', {
+    simpleModel: config.simpleModel,
+    standardModel: config.standardModel,
+    complexModel: config.complexModel,
+    fallbackModel: config.fallbackModel,
+  });
+  let lastFailure: string | null = null;
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `OpenAI routing request failed with status ${response.status}: ${normalizeText(body) || 'no response body'}`,
-    );
+  for (const candidate of candidates) {
+    const response = await fetchImpl(`${config.baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: candidate.model,
+        input: prompt,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      lastFailure = `OpenAI routing request failed with status ${response.status}: ${normalizeText(body) || 'no response body'}`;
+      if (isOpenAiModelRejection(response.status, body)) {
+        continue;
+      }
+      throw new Error(lastFailure);
+    }
+
+    const payload = (await response.json()) as unknown;
+    const rawOutput = stripJsonFences(extractResponseOutputText(payload));
+    if (!rawOutput) {
+      throw new Error('OpenAI routing returned an empty response payload.');
+    }
+
+    const parsed = safeJsonParse<Partial<RoutePromptResult>>(rawOutput, {});
+    return {
+      routeKind: normalizeRouteKind(parsed.routeKind),
+      capabilityId: normalizeText(parsed.capabilityId || undefined) || null,
+      canonicalText:
+        normalizeText(parsed.canonicalText || undefined) || normalizedText,
+      arguments: normalizeArguments(parsed.arguments),
+      confidence: normalizeConfidence(parsed.confidence),
+      clarificationPrompt:
+        normalizeText(parsed.clarificationPrompt || undefined) || null,
+      reason: normalizeText(parsed.reason || undefined) || null,
+      selectedModelTier:
+        (parsed.selectedModelTier as OpenAiModelTier | null | undefined) ||
+        candidate.tier,
+      selectedModel:
+        normalizeText(parsed.selectedModel || undefined) || candidate.model,
+      providerMode:
+        normalizeText(parsed.providerMode || undefined) === 'compatible_gateway'
+          ? 'compatible_gateway'
+          : providerMode,
+    };
   }
 
-  const payload = (await response.json()) as unknown;
-  const rawOutput = stripJsonFences(extractResponseOutputText(payload));
-  if (!rawOutput) {
-    throw new Error('OpenAI routing returned an empty response payload.');
-  }
-
-  const parsed = safeJsonParse<Partial<RoutePromptResult>>(rawOutput, {});
-  return {
-    routeKind: normalizeRouteKind(parsed.routeKind),
-    capabilityId: normalizeText(parsed.capabilityId || undefined) || null,
-    canonicalText:
-      normalizeText(parsed.canonicalText || undefined) || normalizedText,
-    arguments: normalizeArguments(parsed.arguments),
-    confidence: normalizeConfidence(parsed.confidence),
-    clarificationPrompt:
-      normalizeText(parsed.clarificationPrompt || undefined) || null,
-    reason: normalizeText(parsed.reason || undefined) || null,
-  };
+  throw new Error(
+    lastFailure || 'OpenAI routing failed before returning a usable response.',
+  );
 }
