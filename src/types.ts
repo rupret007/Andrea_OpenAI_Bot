@@ -227,6 +227,55 @@ export interface RuntimeBackendMeta {
   operatorGuidance: string | null;
 }
 
+export type CompanionRouteKind =
+  | 'assistant_capability'
+  | 'direct_quick_reply'
+  | 'protected_assistant'
+  | 'clarify'
+  | 'unsupported';
+
+export type CompanionRouteConfidence = 'high' | 'medium' | 'low';
+
+export type CompanionRouteTimeWindowKind =
+  | 'default_24h'
+  | 'last_hours'
+  | 'last_days'
+  | 'today'
+  | 'yesterday'
+  | 'this_week';
+
+export interface CompanionRouteArguments {
+  targetChatName?: string | null;
+  targetChatJid?: string | null;
+  personName?: string | null;
+  threadTitle?: string | null;
+  timeWindowKind?: CompanionRouteTimeWindowKind | null;
+  timeWindowValue?: number | null;
+  savedMaterialOnly?: boolean | null;
+  replyStyle?: 'shorter' | 'warmer' | 'more_direct' | null;
+}
+
+export interface RoutePromptRequest {
+  channel: 'telegram' | 'bluebubbles';
+  text: string;
+  requestRoute: 'direct_assistant' | 'protected_assistant';
+  conversationSummary?: string | null;
+  replyText?: string | null;
+  priorPersonName?: string | null;
+  priorThreadTitle?: string | null;
+  priorLastAnswerSummary?: string | null;
+}
+
+export interface RoutePromptResult {
+  routeKind: CompanionRouteKind;
+  capabilityId?: string | null;
+  canonicalText: string;
+  arguments?: CompanionRouteArguments | null;
+  confidence: CompanionRouteConfidence;
+  clarificationPrompt?: string | null;
+  reason?: string | null;
+}
+
 // --- Channel abstraction ---
 
 export interface Channel {

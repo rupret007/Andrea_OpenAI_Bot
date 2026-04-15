@@ -184,6 +184,17 @@ async function buildHarness(
         operatorGuidance: meta.operatorGuidance ?? null,
       };
     },
+    async routePrompt(request) {
+      return {
+        routeKind: 'unsupported',
+        capabilityId: null,
+        canonicalText: request.text,
+        arguments: null,
+        confidence: 'low',
+        clarificationPrompt: null,
+        reason: 'test stub',
+      };
+    },
     registerGroup(request) {
       return ensureLoopbackRegisteredGroup(request, {
         assistantName: 'Andrea',
@@ -256,6 +267,41 @@ describe('orchestration http server', () => {
       localExecutionDetail:
         'Codex local execution is authenticated and the container runtime is ready.',
       operatorGuidance: null,
+    });
+  });
+
+  it('accepts structured prompt routing through POST /route', async () => {
+    harness = await buildHarness();
+
+    const response = await fetch(`${harness.baseUrl}/route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: 'telegram',
+        text: 'summerize my text messages in Pops of Punk last 2 days',
+        requestRoute: 'direct_assistant',
+        conversationSummary: 'Recent BlueBubbles summaries are available.',
+      }),
+    });
+    const body = (await response.json()) as {
+      routeKind: string;
+      capabilityId: string | null;
+      canonicalText: string;
+      arguments: Record<string, unknown> | null;
+      confidence: string;
+      clarificationPrompt: string | null;
+      reason: string | null;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      routeKind: 'unsupported',
+      capabilityId: null,
+      canonicalText: 'summerize my text messages in Pops of Punk last 2 days',
+      arguments: null,
+      confidence: 'low',
+      clarificationPrompt: null,
+      reason: 'test stub',
     });
   });
 

@@ -9,6 +9,8 @@ import { logger } from './logger.js';
 import type { RuntimeOrchestrationService } from './runtime-orchestration.js';
 import {
   ORCHESTRATION_BACKEND_ID,
+  type RoutePromptRequest,
+  type RoutePromptResult,
   type OrchestrationSource,
   type RuntimeBackendJob,
   type RuntimeBackendJobList,
@@ -40,6 +42,7 @@ export interface OrchestrationHttpServerOptions {
   port: number;
   service: RuntimeOrchestrationService;
   getMeta(): RuntimeBackendMeta;
+  routePrompt(request: RoutePromptRequest): Promise<RoutePromptResult>;
   registerGroup(
     request: LoopbackGroupRegistrationRequest,
   ): LoopbackGroupRegistrationResult | Promise<LoopbackGroupRegistrationResult>;
@@ -374,6 +377,86 @@ async function handleRequest(
     }
 
     writeJson(res, 200, options.getMeta());
+    return;
+  }
+
+  if (pathname === '/route') {
+    if (method !== 'POST') {
+      throw new HttpRouteError(
+        405,
+        'method_not_allowed',
+        'Method not allowed for /route.',
+        'POST',
+      );
+    }
+
+    const body = await readJsonBody(req, { required: true });
+    if (!body) {
+      throw new HttpRouteError(
+        500,
+        'internal_error',
+        'JSON body unexpectedly missing.',
+      );
+    }
+
+    rejectUnexpectedFields(body, [
+      'channel',
+      'text',
+      'requestRoute',
+      'conversationSummary',
+      'replyText',
+      'priorPersonName',
+      'priorThreadTitle',
+      'priorLastAnswerSummary',
+    ]);
+
+    const channel = requireNonEmptyString(body.channel, 'channel');
+    if (channel !== 'telegram' && channel !== 'bluebubbles') {
+      throw new HttpRouteError(
+        400,
+        'validation_error',
+        'channel must be telegram or bluebubbles.',
+      );
+    }
+
+    const requestRoute = requireNonEmptyString(
+      body.requestRoute,
+      'requestRoute',
+    );
+    if (
+      requestRoute !== 'direct_assistant' &&
+      requestRoute !== 'protected_assistant'
+    ) {
+      throw new HttpRouteError(
+        400,
+        'validation_error',
+        'requestRoute must be direct_assistant or protected_assistant.',
+      );
+    }
+
+    const result = await options.routePrompt({
+      channel,
+      text: requireNonEmptyString(body.text, 'text'),
+      requestRoute,
+      conversationSummary: optionalTrimmedString(
+        body.conversationSummary,
+        'conversationSummary',
+      ),
+      replyText: optionalTrimmedString(body.replyText, 'replyText'),
+      priorPersonName: optionalTrimmedString(
+        body.priorPersonName,
+        'priorPersonName',
+      ),
+      priorThreadTitle: optionalTrimmedString(
+        body.priorThreadTitle,
+        'priorThreadTitle',
+      ),
+      priorLastAnswerSummary: optionalTrimmedString(
+        body.priorLastAnswerSummary,
+        'priorLastAnswerSummary',
+      ),
+    });
+    writeJson(res, 200, result);
     return;
   }
 

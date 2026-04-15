@@ -78,6 +78,7 @@ import {
   createRuntimeOrchestrationService,
   executeRuntimeTurn,
 } from './runtime-orchestration.js';
+import { routeCompanionPrompt } from './openai-router.js';
 import { startOrchestrationHttpServer } from './orchestration-http.js';
 import {
   isSenderAllowed,
@@ -759,6 +760,7 @@ async function main(): Promise<void> {
       port: ORCHESTRATION_HTTP_PORT,
       service: orchestrationService,
       getMeta: getOrchestrationHttpMeta,
+      routePrompt: routeCompanionPrompt,
       registerGroup(request) {
         return ensureLoopbackRegisteredGroup(
           {
