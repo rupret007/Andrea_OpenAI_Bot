@@ -583,8 +583,7 @@ export async function routeCompanionPrompt(
         capabilityId: 'followthrough.reminder_overview',
         canonicalText: reminderOverviewCanonicalText,
         arguments: null,
-        reason:
-          result.reason || 'user asked for an upcoming reminder readout',
+        reason: result.reason || 'user asked for an upcoming reminder readout',
       };
     }
     return result;
