@@ -124,23 +124,24 @@ describe('openai router', () => {
   });
 
   it('preserves named thread-summary window arguments even when the model omits them', async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          output_text: JSON.stringify({
-            routeKind: 'assistant_capability',
-            capabilityId: 'communication.summarize_thread',
-            canonicalText: "Summarize the 'Pops of Punk' text thread",
-            arguments: {
-              targetChatName: 'Pops of Punk',
-            },
-            confidence: 'low',
-            clarificationPrompt: null,
-            reason: 'summarize a synced Messages thread by name',
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              routeKind: 'assistant_capability',
+              capabilityId: 'communication.summarize_thread',
+              canonicalText: "Summarize the 'Pops of Punk' text thread",
+              arguments: {
+                targetChatName: 'Pops of Punk',
+              },
+              confidence: 'low',
+              clarificationPrompt: null,
+              reason: 'summarize a synced Messages thread by name',
+            }),
           }),
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
     );
 
     const result = await routeCompanionPrompt(
@@ -161,21 +162,22 @@ describe('openai router', () => {
   });
 
   it('clarifies generic recent-text asks instead of routing them to open loops', async () => {
-    const fetchImpl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          output_text: JSON.stringify({
-            routeKind: 'assistant_capability',
-            capabilityId: 'communication.open_loops',
-            canonicalText: 'Review recent text messages',
-            arguments: null,
-            confidence: 'low',
-            clarificationPrompt: null,
-            reason: 'general recent message review',
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              routeKind: 'assistant_capability',
+              capabilityId: 'communication.open_loops',
+              canonicalText: 'Review recent text messages',
+              arguments: null,
+              confidence: 'low',
+              clarificationPrompt: null,
+              reason: 'general recent message review',
+            }),
           }),
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
     );
 
     const result = await routeCompanionPrompt(

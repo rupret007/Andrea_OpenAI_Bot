@@ -130,9 +130,11 @@ const GENERIC_THREAD_NAME_TOKENS = new Set([
   'yesterday',
 ]);
 
-function parseThreadSummaryWindow(
-  text: string,
-): { cleanedText: string; kind: CompanionRouteTimeWindowKind; value: number | null } {
+function parseThreadSummaryWindow(text: string): {
+  cleanedText: string;
+  kind: CompanionRouteTimeWindowKind;
+  value: number | null;
+} {
   const normalized = normalizeText(text);
   const patterns: Array<{
     pattern: RegExp;
@@ -229,9 +231,7 @@ function looksLikeThreadSummaryPrompt(value: string): boolean {
   );
 }
 
-function parseNamedThreadSummaryArguments(
-  rawText: string,
-): {
+function parseNamedThreadSummaryArguments(rawText: string): {
   canonicalText: string;
   arguments: CompanionRouteArguments;
 } | null {
@@ -295,7 +295,9 @@ function parseNamedThreadSummaryArguments(
   };
 }
 
-function buildGenericThreadSummaryClarification(rawText: string): string | null {
+function buildGenericThreadSummaryClarification(
+  rawText: string,
+): string | null {
   const normalized = normalizeText(rawText).toLowerCase();
   if (
     !/\b(?:text(?: message)?s?|messages|texts)\b/.test(normalized) ||
