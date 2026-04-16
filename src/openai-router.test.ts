@@ -193,4 +193,41 @@ describe('openai router', () => {
     expect(result.capabilityId).toBeNull();
     expect(result.clarificationPrompt).toContain('Which Messages chat');
   });
+
+  it('preserves reminder overview routing even when the model stays on the protected lane', async () => {
+    const fetchImpl = vi.fn(async (_input, init) => {
+      const payload = JSON.parse(String(init?.body)) as {
+        model: string;
+        input: string;
+      };
+      expect(payload.input).toContain('followthrough.reminder_overview');
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            routeKind: 'protected_assistant',
+            capabilityId: null,
+            canonicalText: 'List my reminders',
+            arguments: null,
+            confidence: 'low',
+            clarificationPrompt: null,
+            reason: 'reminder readout should stay protected',
+          }),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+
+    const result = await routeCompanionPrompt(
+      {
+        channel: 'telegram',
+        text: 'What reminders do I have tomorrow?',
+        requestRoute: 'protected_assistant',
+      },
+      fetchImpl as unknown as typeof fetch,
+    );
+
+    expect(result.routeKind).toBe('assistant_capability');
+    expect(result.capabilityId).toBe('followthrough.reminder_overview');
+    expect(result.canonicalText).toBe('what reminders do I have tomorrow');
+  });
 });

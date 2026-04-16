@@ -339,6 +339,22 @@ function buildGenericThreadSummaryClarification(
   return 'Which Messages chat do you want me to summarize?';
 }
 
+function parseReminderOverviewCanonicalText(rawText: string): string | null {
+  const normalized = normalizeText(rawText)
+    .replace(/[!?]+$/g, '')
+    .toLowerCase();
+  const match = normalized.match(
+    /^(?:what reminders do i have|what should i remember|what do i need to remember)(?: (today|tomorrow|this week))?$/,
+  );
+  if (!match) {
+    return null;
+  }
+  const windowLabel = match[1];
+  return windowLabel
+    ? `what reminders do I have ${windowLabel}`
+    : 'what reminders do I have';
+}
+
 function normalizeArguments(value: unknown): CompanionRouteArguments | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -415,6 +431,7 @@ function buildRouterPrompt(input: RoutePromptRequest): string {
     '- communication.draft_reply',
     '- communication.open_loops',
     '- communication.manage_tracking',
+    '- followthrough.reminder_overview (list upcoming reminders or what to remember today, tomorrow, or this week)',
     '- daily.loose_ends',
     '- daily.evening_reset',
     '- daily.whats_next',
@@ -428,6 +445,7 @@ function buildRouterPrompt(input: RoutePromptRequest): string {
     '- research.summarize',
     '- research.recommend',
     'Use assistant_capability with research.topic for live-fact asks such as weather, forecast, current conditions, temperature, wind, humidity, rain, snow, headlines, latest news, or other outward lookup questions.',
+    'Use assistant_capability with followthrough.reminder_overview for reminder readouts like what reminders do I have, what should I remember tomorrow, or what do I need to remember this week.',
     "Use protected_assistant for calendar/reminder/task-style asks that should stay on Andrea's protected local path.",
     'Use direct_quick_reply for greetings, presence, thanks, and very lightweight discovery or chit-chat.',
     'Use clarify when the target thread/person/window is too ambiguous to execute safely.',
@@ -471,6 +489,8 @@ export async function routeCompanionPrompt(
     parseNamedThreadSummaryArguments(normalizedText);
   const genericThreadSummaryClarification =
     buildGenericThreadSummaryClarification(normalizedText);
+  const reminderOverviewCanonicalText =
+    parseReminderOverviewCanonicalText(normalizedText);
   const candidates = buildOpenAiModelCandidates('simple', {
     simpleModel: config.simpleModel,
     standardModel: config.standardModel,
@@ -554,6 +574,17 @@ export async function routeCompanionPrompt(
         reason:
           result.reason ||
           'user asked to summarize a synced Messages thread by name',
+      };
+    }
+    if (reminderOverviewCanonicalText) {
+      return {
+        ...result,
+        routeKind: 'assistant_capability',
+        capabilityId: 'followthrough.reminder_overview',
+        canonicalText: reminderOverviewCanonicalText,
+        arguments: null,
+        reason:
+          result.reason || 'user asked for an upcoming reminder readout',
       };
     }
     return result;
