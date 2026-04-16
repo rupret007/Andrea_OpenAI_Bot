@@ -345,6 +345,7 @@ describe('orchestration http server', () => {
       body: JSON.stringify({
         groupFolder: 'main',
         prompt: 'Please summarize the latest state.',
+        requestedRuntime: 'openai_cloud',
         source: {
           system: 'nanobot',
           actorType: 'operator',
@@ -364,6 +365,7 @@ describe('orchestration http server', () => {
     expect(body.job.sourceSystem).toBe('nanobot');
     expect(body.job.actorType).toBe('operator');
     expect(body.job.actorId).toBe('user-1');
+    expect(body.job.requestedRuntime).toBe('openai_cloud');
   });
 
   it('registers a new group through PUT /groups/:groupFolder', async () => {

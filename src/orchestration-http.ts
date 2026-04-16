@@ -8,6 +8,7 @@ import {
 import { logger } from './logger.js';
 import type { RuntimeOrchestrationService } from './runtime-orchestration.js';
 import {
+  type AgentRuntimeName,
   ORCHESTRATION_BACKEND_ID,
   type RoutePromptRequest,
   type RoutePromptResult,
@@ -254,6 +255,25 @@ function parseSource(raw: unknown): OrchestrationSource {
   };
 }
 
+function optionalAgentRuntimeName(
+  raw: unknown,
+  fieldName: string,
+): AgentRuntimeName | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (
+    raw === 'codex_local' ||
+    raw === 'openai_cloud' ||
+    raw === 'claude_legacy'
+  ) {
+    return raw;
+  }
+  throw new HttpRouteError(
+    400,
+    'validation_error',
+    `${fieldName} must be codex_local, openai_cloud, or claude_legacy when provided.`,
+  );
+}
+
 function rejectUnexpectedFields(
   body: Record<string, unknown>,
   allowedFields: string[],
@@ -473,6 +493,10 @@ async function handleRequest(
       const job = await options.service.createJob({
         groupFolder: requireNonEmptyString(body.groupFolder, 'groupFolder'),
         prompt: requireNonEmptyString(body.prompt, 'prompt'),
+        requestedRuntime: optionalAgentRuntimeName(
+          body.requestedRuntime,
+          'requestedRuntime',
+        ),
         source: parseSource(body.source),
       });
       writeJson(res, 202, { job: toRuntimeBackendJob(job) });
