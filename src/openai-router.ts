@@ -98,6 +98,245 @@ function normalizePositiveInteger(value: unknown): number | null {
   return rounded > 0 ? rounded : null;
 }
 
+type CompanionRouteTimeWindowKind =
+  | 'default_24h'
+  | 'last_hours'
+  | 'last_days'
+  | 'today'
+  | 'yesterday'
+  | 'this_week';
+
+const GENERIC_THREAD_NAME_TOKENS = new Set([
+  'a',
+  'an',
+  'for',
+  'from',
+  'in',
+  'last',
+  'message',
+  'messages',
+  'my',
+  'please',
+  'pls',
+  'recent',
+  'text',
+  'texts',
+  'that',
+  'the',
+  'this',
+  'thread',
+  'today',
+  'week',
+  'yesterday',
+]);
+
+function parseThreadSummaryWindow(
+  text: string,
+): { cleanedText: string; kind: CompanionRouteTimeWindowKind; value: number | null } {
+  const normalized = normalizeText(text);
+  const patterns: Array<{
+    pattern: RegExp;
+    kind: CompanionRouteTimeWindowKind;
+    parseValue?(match: RegExpMatchArray): number | null;
+  }> = [
+    {
+      pattern: /\blast\s+(\d+)\s+hours?\b/i,
+      kind: 'last_hours',
+      parseValue: (match) => Number.parseInt(match[1] || '', 10) || null,
+    },
+    {
+      pattern: /\blast\s+(\d+)\s+days?\b/i,
+      kind: 'last_days',
+      parseValue: (match) => Number.parseInt(match[1] || '', 10) || null,
+    },
+    { pattern: /\btoday\b/i, kind: 'today' },
+    { pattern: /\byesterday\b/i, kind: 'yesterday' },
+    { pattern: /\bthis week\b/i, kind: 'this_week' },
+  ];
+
+  for (const candidate of patterns) {
+    const match = normalized.match(candidate.pattern);
+    if (!match) continue;
+    return {
+      cleanedText: normalizeText(
+        normalized.replace(candidate.pattern, ' ').replace(/[.,!?]+$/g, ''),
+      ),
+      kind: candidate.kind,
+      value: candidate.parseValue ? candidate.parseValue(match) : null,
+    };
+  }
+
+  return {
+    cleanedText: normalized.replace(/[.,!?]+$/g, '').trim(),
+    kind: 'default_24h',
+    value: 24,
+  };
+}
+
+function cleanThreadChatName(value: string): string {
+  return normalizeText(value)
+    .replace(/^(?:from|in)\s+/i, '')
+    .replace(/^the\s+/i, '')
+    .replace(
+      /\b(?:text(?: message)?s?|messages?|message|thread|chat|conversation|group(?: chat)?|space)\b/gi,
+      ' ',
+    )
+    .replace(/\b(?:please|pls)\b/gi, ' ')
+    .replace(/["']/g, '')
+    .replace(/\b(?:from|in)\b\s*$/i, '')
+    .replace(/[.,!?]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isSpecificThreadChatName(value: string): boolean {
+  const normalized = cleanThreadChatName(value).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (
+    /^(?:for|today|yesterday|this week|recent|my|my texts?|my messages?|text messages?|messages?|texts?)$/i.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  return tokens.some((token) => !GENERIC_THREAD_NAME_TOKENS.has(token));
+}
+
+function looksLikeThreadSummaryPrompt(value: string): boolean {
+  const lower = value.toLowerCase();
+  if (
+    !/\b(?:summari[sz]e|summerize|sumarize)\b/.test(lower) &&
+    !/\bsummary of\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (/\b(news|article|website|page|video|podcast)\b/.test(lower)) {
+    return false;
+  }
+  if (
+    /^summari[sz]e this\b/.test(lower) ||
+    /^summerize this\b/.test(lower) ||
+    /^sumarize this\b/.test(lower) ||
+    /^summari[sz]e this message\b/.test(lower)
+  ) {
+    return false;
+  }
+  return /\b(?:text(?: message)?s?|messages|texts|thread|chat|conversation)\b/.test(
+    lower,
+  );
+}
+
+function parseNamedThreadSummaryArguments(
+  rawText: string,
+): {
+  canonicalText: string;
+  arguments: CompanionRouteArguments;
+} | null {
+  const normalized = normalizeText(rawText);
+  if (!normalized || !looksLikeThreadSummaryPrompt(normalized)) {
+    return null;
+  }
+
+  const { cleanedText, kind, value } = parseThreadSummaryWindow(normalized);
+  const withoutLead = normalizeText(
+    normalizeText(
+      cleanedText
+        .replace(/^(?:can you|could you|please|hey|hi|hello)\s+/i, '')
+        .replace(/\b(?:summari[sz]e|summerize|sumarize)\b/i, ''),
+    )
+      .replace(/^my\s+/i, '')
+      .replace(/^(?:the\s+)?(?:text(?: message)?s?|messages?|texts?)\s+/i, '')
+      .replace(/^(?:in|from)\s+/i, ''),
+  );
+
+  const extractionPatterns = [
+    /^(?:my\s+)?(?:text(?: message)?s?|messages?|texts?)\s+(?:in|from)\s+(.+)$/i,
+    /^(?:in|from)\s+(.+)$/i,
+    /^(.+?)\s+(?:text(?: message)?s?|messages?|thread|chat|conversation)$/i,
+    /^(.+)$/i,
+  ];
+
+  let targetChatName = '';
+  for (const pattern of extractionPatterns) {
+    const match = withoutLead.match(pattern);
+    if (!match) continue;
+    targetChatName = cleanThreadChatName(match[1] || '');
+    if (targetChatName && isSpecificThreadChatName(targetChatName)) break;
+  }
+
+  if (!targetChatName || !isSpecificThreadChatName(targetChatName)) {
+    return null;
+  }
+
+  const canonicalText =
+    kind === 'default_24h'
+      ? `summarize my text messages in ${targetChatName}`
+      : kind === 'last_hours'
+        ? `summarize my text messages in ${targetChatName} from the last ${value || 1} hours`
+        : kind === 'last_days'
+          ? `summarize my text messages in ${targetChatName} from the last ${value || 1} days`
+          : kind === 'today'
+            ? `summarize my text messages in ${targetChatName} from today`
+            : kind === 'yesterday'
+              ? `summarize my text messages in ${targetChatName} from yesterday`
+              : `summarize my text messages in ${targetChatName} from this week`;
+
+  return {
+    canonicalText,
+    arguments: {
+      targetChatName,
+      threadTitle: targetChatName,
+      timeWindowKind: kind,
+      timeWindowValue: value,
+    },
+  };
+}
+
+function buildGenericThreadSummaryClarification(rawText: string): string | null {
+  const normalized = normalizeText(rawText).toLowerCase();
+  if (
+    !/\b(?:text(?: message)?s?|messages|texts)\b/.test(normalized) ||
+    /\b(news|article|website|page|video|podcast)\b/.test(normalized)
+  ) {
+    return null;
+  }
+  const looksGenericRecentAsk =
+    /\b(?:recent|latest)\s+(?:text(?: message)?s?|messages|texts)\b/.test(
+      normalized,
+    ) ||
+    /\b(?:what(?:'s| is| are)|show me)\b.*\b(?:text(?: message)?s?|messages|texts)\b/.test(
+      normalized,
+    ) ||
+    looksLikeThreadSummaryPrompt(normalized);
+  if (!looksGenericRecentAsk) {
+    return null;
+  }
+  const namedIntent = parseNamedThreadSummaryArguments(rawText);
+  if (namedIntent) {
+    return null;
+  }
+  const { kind, value } = parseThreadSummaryWindow(rawText);
+  if (kind === 'today') {
+    return 'Which Messages chat should I summarize for today?';
+  }
+  if (kind === 'yesterday') {
+    return 'Which Messages chat should I summarize from yesterday?';
+  }
+  if (kind === 'this_week') {
+    return 'Which Messages chat should I summarize from this week?';
+  }
+  if (kind === 'last_days') {
+    return `Which Messages chat should I summarize from the last ${value || 1} day${value === 1 ? '' : 's'}?`;
+  }
+  if (kind === 'last_hours') {
+    return `Which Messages chat should I summarize from the last ${value || 1} hour${value === 1 ? '' : 's'}?`;
+  }
+  return 'Which Messages chat do you want me to summarize?';
+}
+
 function normalizeArguments(value: unknown): CompanionRouteArguments | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -194,6 +433,7 @@ function buildRouterPrompt(input: RoutePromptRequest): string {
     'Never send a thread-summary ask to research.summarize when it is about a synced Messages chat by name.',
     'Treat summarize misspellings like summerize and sumarize as summarize.',
     'For thread summaries, fill arguments.targetChatName and the timeWindow fields when possible.',
+    'If the user asks for recent text messages or a text-message summary without naming a specific synced Messages chat, use clarify and ask which chat they mean.',
     'For reply rewrites, fill arguments.replyStyle when the user asks for shorter, warmer, or more direct.',
     'For saved-material asks, set arguments.savedMaterialOnly=true when that is explicit.',
     'Keep canonicalText short and execution-friendly for the local suite.',
@@ -225,6 +465,10 @@ export async function routeCompanionPrompt(
     ...input,
     text: normalizedText,
   });
+  const namedThreadSummaryIntent =
+    parseNamedThreadSummaryArguments(normalizedText);
+  const genericThreadSummaryClarification =
+    buildGenericThreadSummaryClarification(normalizedText);
   const candidates = buildOpenAiModelCandidates('simple', {
     simpleModel: config.simpleModel,
     standardModel: config.standardModel,
@@ -262,7 +506,7 @@ export async function routeCompanionPrompt(
     }
 
     const parsed = safeJsonParse<Partial<RoutePromptResult>>(rawOutput, {});
-    return {
+    const result: RoutePromptResult = {
       routeKind: normalizeRouteKind(parsed.routeKind),
       capabilityId: normalizeText(parsed.capabilityId || undefined) || null,
       canonicalText:
@@ -282,6 +526,35 @@ export async function routeCompanionPrompt(
           ? 'compatible_gateway'
           : providerMode,
     };
+    if (genericThreadSummaryClarification) {
+      return {
+        ...result,
+        routeKind: 'clarify',
+        capabilityId: null,
+        canonicalText: 'summarize a synced Messages thread',
+        arguments: null,
+        clarificationPrompt: genericThreadSummaryClarification,
+        reason:
+          'generic recent-text summary asks need a specific synced Messages thread',
+      };
+    }
+    if (namedThreadSummaryIntent) {
+      return {
+        ...result,
+        routeKind: 'assistant_capability',
+        capabilityId: 'communication.summarize_thread',
+        canonicalText:
+          namedThreadSummaryIntent.canonicalText || result.canonicalText,
+        arguments: {
+          ...(result.arguments || {}),
+          ...namedThreadSummaryIntent.arguments,
+        },
+        reason:
+          result.reason ||
+          'user asked to summarize a synced Messages thread by name',
+      };
+    }
+    return result;
   }
 
   throw new Error(
