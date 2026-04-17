@@ -15,6 +15,7 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_INITIAL_OUTPUT_TIMEOUT,
   CONTAINER_MAX_OUTPUT_SIZE,
+  CONTAINER_PRESPAWN_TIMEOUT,
   CONTAINER_TIMEOUT,
   DATA_DIR,
   GROUPS_DIR,
@@ -181,6 +182,26 @@ function buildRuntimeOutputHint(stdout: string, stderr: string): string | null {
     buildOutputTail(stderr, 'Last stderr') ||
     buildOutputTail(stdout, 'Last stdout')
   );
+}
+
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
 }
 
 function ensureSecretShadowFile(): string {
@@ -607,15 +628,55 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `andrea-runtime-${safeName}-${Date.now()}`;
+  const logsDir = path.join(groupDir, 'logs');
+  fs.mkdirSync(logsDir, { recursive: true });
   // Main group uses the default OneCLI agent; others use their own agent.
   const agentIdentifier = input.isMain
     ? undefined
     : group.folder.toLowerCase().replace(/_/g, '-');
-  const containerArgs = await buildContainerArgs(
-    mounts,
-    containerName,
-    agentIdentifier,
+  const preSpawnTimeoutMs = Math.max(
+    1_000,
+    Math.min(CONTAINER_TIMEOUT, CONTAINER_PRESPAWN_TIMEOUT),
   );
+  let containerArgs: string[];
+  try {
+    containerArgs = await raceWithTimeout(
+      buildContainerArgs(mounts, containerName, agentIdentifier),
+      preSpawnTimeoutMs,
+      `Container startup prep exceeded ${preSpawnTimeoutMs}ms before spawn.`,
+    );
+  } catch (err) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const logFile = path.join(logsDir, `container-preflight-${timestamp}.log`);
+    const errorText = err instanceof Error ? err.message : String(err);
+    fs.writeFileSync(
+      logFile,
+      [
+        '=== Container Preflight Failure ===',
+        `Timestamp: ${new Date().toISOString()}`,
+        `Group: ${group.name}`,
+        `Container: ${containerName}`,
+        `Preflight Timeout: ${preSpawnTimeoutMs}ms`,
+        `Error: ${errorText}`,
+      ].join('\n'),
+    );
+    logger.error(
+      {
+        group: group.name,
+        containerName,
+        preSpawnTimeoutMs,
+        err,
+        logFile,
+      },
+      'Container startup failed before spawn',
+    );
+    return {
+      status: 'error',
+      result: null,
+      error: errorText,
+      logFile,
+    };
+  }
 
   logger.debug(
     {
@@ -640,9 +701,6 @@ export async function runContainerAgent(
     'Spawning container agent',
   );
 
-  const logsDir = path.join(groupDir, 'logs');
-  fs.mkdirSync(logsDir, { recursive: true });
-
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -662,6 +720,7 @@ export async function runContainerAgent(
     let parseBuffer = '';
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
+    let streamingOutputError: Error | null = null;
 
     container.stdout.on('data', (data) => {
       const chunk = data.toString();
@@ -706,7 +765,21 @@ export async function runContainerAgent(
             resetTimeout();
             // Call onOutput for all markers (including null results)
             // so idle timers start even for "silent" query completions.
-            outputChain = outputChain.then(() => onOutput(parsed));
+            outputChain = outputChain
+              .then(() => onOutput(parsed))
+              .catch((err) => {
+                streamingOutputError =
+                  err instanceof Error ? err : new Error(String(err));
+                logger.error(
+                  {
+                    group: group.name,
+                    containerName,
+                    err: streamingOutputError,
+                  },
+                  'Streaming output handler failed',
+                );
+                stopContainerGracefully('streaming_output_handler_failed');
+              });
           } else if (
             parsed.status === 'success' &&
             !requestedNonStreamingStop
@@ -1040,6 +1113,15 @@ export async function runContainerAgent(
       // Streaming mode: wait for output chain to settle, return completion marker
       if (onOutput) {
         outputChain.then(() => {
+          if (streamingOutputError) {
+            resolve({
+              status: 'error',
+              result: null,
+              error: `Streaming output handler failed: ${streamingOutputError.message}`,
+              logFile,
+            });
+            return;
+          }
           logger.info(
             { group: group.name, duration, newSessionId },
             'Container completed (streaming mode)',

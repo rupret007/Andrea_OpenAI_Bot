@@ -1,3 +1,5 @@
+import type { ContainerRuntimeStatus } from './container-runtime.js';
+
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
   containerPath?: string; // Optional — defaults to basename of hostPath. Mounted at /workspace/extra/{value}
@@ -225,6 +227,40 @@ export interface RuntimeBackendMeta {
   authState: RuntimeBackendAuthState;
   localExecutionDetail: string | null;
   operatorGuidance: string | null;
+}
+
+export interface RuntimeBackendDispatchSurface {
+  metaRoute: '/meta';
+  statusRoute: '/status';
+  jobsCollectionRoute: '/jobs';
+  jobItemRoute: '/jobs/:jobId';
+  jobFollowUpRoute: '/jobs/:jobId/followup';
+  jobLogsRoute: '/jobs/:jobId/logs';
+  jobStopRoute: '/jobs/:jobId/stop';
+  followUpsCollectionRoute: '/followups';
+  groupsCollectionRoute: '/groups/:groupFolder';
+}
+
+export interface RuntimeBackendRuntimeSnapshot {
+  defaultRuntime: AgentRuntimeName;
+  fallbackRuntime: AgentRuntimeName;
+  codexLocalEnabled: boolean;
+  codexLocalModel: string | null;
+  codexLocalReady: boolean;
+  hostCodexAuthPresent: boolean;
+  openAiModelFallback: string;
+  openAiApiKeyPresent: boolean;
+  openAiCloudReady: boolean;
+  openAiBaseUrl: string | null;
+  activeThreadCount: number;
+  activeJobCount: number;
+  containerRuntimeName: string;
+  containerRuntimeStatus: ContainerRuntimeStatus;
+}
+
+export interface RuntimeBackendStatusSnapshot extends RuntimeBackendMeta {
+  dispatchSurface: RuntimeBackendDispatchSurface;
+  runtime: RuntimeBackendRuntimeSnapshot;
 }
 
 export type CompanionRouteKind =

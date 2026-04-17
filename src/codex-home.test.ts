@@ -67,4 +67,22 @@ describe('codex-home', () => {
       fs.readFileSync(path.join(targetDir, 'config.toml'), 'utf-8'),
     ).toContain('gpt-5.4');
   });
+
+  it('refreshes a group home when the existing auth content differs', () => {
+    const profileDir = makeTempDir('andrea-codex-refresh-src-');
+    const targetDir = makeTempDir('andrea-codex-refresh-dst-');
+    const codexHome = path.join(profileDir, '.codex');
+    fs.mkdirSync(codexHome, { recursive: true });
+    fs.writeFileSync(path.join(codexHome, 'auth.json'), '{"token":"host"}');
+    fs.writeFileSync(path.join(targetDir, 'auth.json'), '{"token":"stale"}');
+
+    const copied = seedCodexHomeFromHost(targetDir, {
+      USERPROFILE: profileDir,
+    } as NodeJS.ProcessEnv);
+
+    expect(copied).toEqual(['auth.json']);
+    expect(
+      fs.readFileSync(path.join(targetDir, 'auth.json'), 'utf-8'),
+    ).toContain('"host"');
+  });
 });

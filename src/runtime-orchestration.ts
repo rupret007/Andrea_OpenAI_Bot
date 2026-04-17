@@ -25,6 +25,10 @@ import {
 } from './db.js';
 import type { RuntimeJobSnapshot as QueueRuntimeJobSnapshot } from './group-queue.js';
 import { logger } from './logger.js';
+import {
+  emitAndreaPlatformJobLog,
+  emitAndreaPlatformJobState,
+} from './platform-bridge.js';
 import type {
   AgentRuntimeName,
   AgentThreadState,
@@ -83,6 +87,7 @@ export interface RuntimeExecutionRequest {
   routeHint?: RuntimeRoute;
   requestedRuntime?: AgentRuntimeName | null;
   existingThreadOverride?: AgentThreadState;
+  skipStoredThreadLookup?: boolean;
   onOutput?: (output: ContainerOutput) => Promise<void>;
 }
 
@@ -235,7 +240,9 @@ function planRuntimeExecution(
 ): RuntimeExecutionPlan {
   const existingThread =
     request.existingThreadOverride ||
-    deps.getStoredThread(request.group.folder);
+    (request.skipStoredThreadLookup
+      ? undefined
+      : deps.getStoredThread(request.group.folder));
   const runtimeRoute =
     request.routeHint ||
     classifyRuntimeRoute(request.requestPolicy, request.prompt);
@@ -248,8 +255,10 @@ function planRuntimeExecution(
       ? existingThread.thread_id
       : null;
   const sessionId =
-    reusedThreadId ||
-    (existingThread ? undefined : deps.getSession(request.group.folder));
+    request.skipStoredThreadLookup
+      ? undefined
+      : reusedThreadId ||
+        (existingThread ? undefined : deps.getSession(request.group.folder));
 
   return {
     existingThread,
@@ -354,6 +363,26 @@ function toPublicJob(
   };
 }
 
+function mirrorPlatformJobState(jobId: string, summary?: string): void {
+  const job = toPublicJob(getRuntimeOrchestrationJob(jobId));
+  if (!job) return;
+  void emitAndreaPlatformJobState(job, summary);
+}
+
+function mirrorPlatformJobLog(
+  jobId: string,
+  excerpt: string,
+  logPath?: string | null,
+): void {
+  const job = toPublicJob(getRuntimeOrchestrationJob(jobId));
+  if (!job) return;
+  void emitAndreaPlatformJobLog(job, excerpt, logPath || job.logFile || null);
+}
+
+function hasLiveQueueRunner(job: QueueRuntimeJobSnapshot | undefined): boolean {
+  return Boolean(job?.active && job.containerName);
+}
+
 function reconcileOrphanedRunningJob(
   deps: RuntimeOrchestrationServiceDependencies,
   jobId: string,
@@ -366,7 +395,7 @@ function reconcileOrphanedRunningJob(
   const activeJob = deps
     .getRuntimeJobs()
     .find((runtimeJob) => runtimeJob.runningTaskId === jobId);
-  if (activeJob) {
+  if (hasLiveQueueRunner(activeJob)) {
     return job;
   }
 
@@ -385,8 +414,22 @@ function reconcileOrphanedRunningJob(
     updatedAt: nowIso(),
     finishedAt: nowIso(),
     errorText:
-      'Runtime orchestration job lost its live runner before producing output.',
+      activeJob && !activeJob.containerName
+        ? 'Runtime orchestration job never attached to a live runner before producing output.'
+        : 'Runtime orchestration job lost its live runner before producing output.',
   });
+  mirrorPlatformJobState(
+    jobId,
+    activeJob && !activeJob.containerName
+      ? 'Runtime orchestration job never attached to a live runner before producing output.'
+      : 'Runtime orchestration job lost its live runner before producing output.',
+  );
+  mirrorPlatformJobLog(
+    jobId,
+    activeJob && !activeJob.containerName
+      ? 'Runtime orchestration job never attached to a live runner before producing output.'
+      : 'Runtime orchestration job lost its live runner before producing output.',
+  );
   return getRuntimeOrchestrationJob(jobId);
 }
 
@@ -570,6 +613,8 @@ async function runOrchestrationJob(
     selectedRuntime: plan.preferredRuntime,
     threadId: plan.reusedThreadId,
   });
+  mirrorPlatformJobState(jobId, 'Runtime orchestration job started running.');
+  mirrorPlatformJobLog(jobId, 'Runtime orchestration job started running.');
 
   let latestOutputText: string | null =
     getRuntimeOrchestrationJob(jobId)?.latestOutputText || null;
@@ -583,16 +628,17 @@ async function runOrchestrationJob(
   };
 
   try {
-    const result = await executeRuntimeTurn(deps, {
-      group: executionTarget.group,
-      groupJid: executionTarget.jid,
-      chatJid: executionTarget.jid,
-      prompt,
-      requestPolicy,
-      routeHint,
-      requestedRuntime,
-      existingThreadOverride: executionTarget.threadCandidate,
-      onOutput: async (output) => {
+        const result = await executeRuntimeTurn(deps, {
+          group: executionTarget.group,
+          groupJid: executionTarget.jid,
+          chatJid: executionTarget.jid,
+          prompt,
+          requestPolicy,
+          routeHint,
+          requestedRuntime,
+          existingThreadOverride: executionTarget.threadCandidate,
+          skipStoredThreadLookup: currentJob.kind === 'create',
+          onOutput: async (output) => {
         if (output.result !== null) {
           latestOutputText = output.result;
           scheduleClose();
@@ -612,6 +658,12 @@ async function runOrchestrationJob(
           errorText:
             output.status === 'error' ? output.error || null : undefined,
         });
+        mirrorPlatformJobState(jobId, 'Runtime orchestration job produced output.');
+        if (output.result) {
+          mirrorPlatformJobLog(jobId, output.result, output.logFile);
+        } else if (output.error) {
+          mirrorPlatformJobLog(jobId, output.error, output.logFile);
+        }
       },
     });
     if (closeTimer) clearTimeout(closeTimer);
@@ -628,6 +680,15 @@ async function runOrchestrationJob(
         errorText: result.output.error || 'Unknown runtime error.',
         logFile: result.output.logFile,
       });
+      mirrorPlatformJobState(
+        jobId,
+        result.output.error || 'Runtime orchestration job failed.',
+      );
+      mirrorPlatformJobLog(
+        jobId,
+        result.output.error || 'Runtime orchestration job failed.',
+        result.output.logFile,
+      );
       return;
     }
 
@@ -646,6 +707,13 @@ async function runOrchestrationJob(
       errorText: null,
       logFile: result.output.logFile,
     });
+    mirrorPlatformJobState(
+      jobId,
+      finalOutputText || 'Runtime orchestration job succeeded.',
+    );
+    if (finalOutputText) {
+      mirrorPlatformJobLog(jobId, finalOutputText, result.output.logFile);
+    }
   } catch (err) {
     const finishedAt = nowIso();
     const errorText = err instanceof Error ? err.message : String(err);
@@ -657,6 +725,8 @@ async function runOrchestrationJob(
       finishedAt,
       errorText,
     });
+    mirrorPlatformJobState(jobId, errorText);
+    mirrorPlatformJobLog(jobId, errorText);
   }
 
   const staleGroupTarget = groupTargetResolver();
@@ -670,6 +740,8 @@ async function runOrchestrationJob(
       finishedAt: nowIso(),
       errorText: 'Stop requested before execution started.',
     });
+    mirrorPlatformJobState(jobId, 'Stop requested before execution started.');
+    mirrorPlatformJobLog(jobId, 'Stop requested before execution started.');
     return;
   }
 
@@ -680,6 +752,14 @@ async function runOrchestrationJob(
       finishedAt: nowIso(),
       errorText: `Runtime orchestration job for ${staleGroupTarget.group.folder} exited without a final status update.`,
     });
+    mirrorPlatformJobState(
+      jobId,
+      `Runtime orchestration job for ${staleGroupTarget.group.folder} exited without a final status update.`,
+    );
+    mirrorPlatformJobLog(
+      jobId,
+      `Runtime orchestration job for ${staleGroupTarget.group.folder} exited without a final status update.`,
+    );
   }
 }
 
@@ -709,6 +789,8 @@ export function createRuntimeOrchestrationService(
           requestedRuntime: request.requestedRuntime,
         }),
       );
+      mirrorPlatformJobState(jobId, 'Queued runtime orchestration job.');
+      mirrorPlatformJobLog(jobId, 'Queued runtime orchestration job.');
 
       deps.enqueueJob(target.jid, jobId, async () => {
         const current = getRuntimeOrchestrationJob(jobId);
@@ -722,6 +804,8 @@ export function createRuntimeOrchestrationService(
             finishedAt: timestamp,
             errorText: 'Stop requested before execution started.',
           });
+          mirrorPlatformJobState(jobId, 'Stop requested before execution started.');
+          mirrorPlatformJobLog(jobId, 'Stop requested before execution started.');
           return;
         }
 
@@ -732,7 +816,7 @@ export function createRuntimeOrchestrationService(
           () => ({
             ...target,
             parentJobId: null,
-            threadCandidate: deps.getStoredThread(target.group.folder),
+            threadCandidate: undefined,
           }),
           prompt,
           request.routeHint,
@@ -765,6 +849,8 @@ export function createRuntimeOrchestrationService(
           parentJobId: initialTarget.parentJobId,
         }),
       );
+      mirrorPlatformJobState(jobId, 'Queued runtime follow-up job.');
+      mirrorPlatformJobLog(jobId, 'Queued runtime follow-up job.');
 
       deps.enqueueJob(initialTarget.jid, jobId, async () => {
         const current = getRuntimeOrchestrationJob(jobId);
@@ -778,6 +864,8 @@ export function createRuntimeOrchestrationService(
             finishedAt: timestamp,
             errorText: 'Stop requested before execution started.',
           });
+          mirrorPlatformJobState(jobId, 'Stop requested before execution started.');
+          mirrorPlatformJobLog(jobId, 'Stop requested before execution started.');
           return;
         }
 
@@ -850,19 +938,27 @@ export function createRuntimeOrchestrationService(
           finishedAt: timestamp,
           errorText: 'Stop requested before execution started.',
         });
+        mirrorPlatformJobState(job.jobId, 'Stop requested before execution started.');
+        mirrorPlatformJobLog(job.jobId, 'Stop requested before execution started.');
       } else if (job.status === 'running') {
         const activeJob = deps
           .getRuntimeJobs()
           .find((runtimeJob) => runtimeJob.runningTaskId === job.jobId);
 
-        liveStopAccepted = activeJob
-          ? deps.requestStop(activeJob.groupJid)
-          : false;
+        liveStopAccepted =
+          activeJob && hasLiveQueueRunner(activeJob)
+            ? deps.requestStop(activeJob.groupJid)
+            : false;
 
         updateRuntimeOrchestrationJob(job.jobId, {
           stopRequested: true,
           updatedAt: timestamp,
         });
+        mirrorPlatformJobState(job.jobId, 'Stop requested while runtime job was still running.');
+        mirrorPlatformJobLog(
+          job.jobId,
+          'Stop requested while runtime job was still running.',
+        );
       }
 
       const updatedJob = toPublicJob(getRuntimeOrchestrationJob(job.jobId));

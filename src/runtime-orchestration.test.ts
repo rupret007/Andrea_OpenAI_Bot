@@ -96,7 +96,7 @@ function buildHarness(
 
   const deps: RuntimeOrchestrationServiceDependencies = {
     assistantName: 'Andrea',
-    enqueueJob(groupJid, jobId, fn) {
+    enqueueJob(_groupJid, jobId, fn) {
       queuedTasks.set(jobId, fn);
     },
     getAvailableGroups() {
@@ -179,6 +179,46 @@ describe('runtime orchestration service', () => {
     expect(harness.service.getJob(job.jobId)?.status).toBe('queued');
   });
 
+  it('starts create jobs fresh even when a stored thread exists for the group', async () => {
+    const harness = buildHarness({
+      runContainerAgent: vi.fn(async (_group, input) => {
+        expect(input.sessionId).toBeUndefined();
+        return {
+          status: 'success' as const,
+          result: 'Fresh session started',
+          newSessionId: 'thread-fresh',
+          runtime: 'codex_local' as const,
+        };
+      }),
+    });
+    harness.storedThreads.main = {
+      group_folder: 'main',
+      runtime: 'codex_local',
+      thread_id: 'thread-stale',
+      last_response_id: 'thread-stale',
+      updated_at: '2026-03-30T00:00:00.000Z',
+    };
+    harness.sessions.main = 'thread-stale';
+
+    const job = await harness.service.createJob({
+      groupFolder: 'main',
+      prompt: 'Open a fresh coding thread for this new task.',
+      source: { system: 'nanoclaw' },
+    });
+
+    await harness.queuedTasks.get(job.jobId)!();
+
+    const updated = harness.service.getJob(job.jobId);
+    expect(updated?.status).toBe('succeeded');
+    expect(updated?.threadId).toBe('thread-fresh');
+    expect(updated?.selectedRuntime).toBe('codex_local');
+    expect(harness.persistAgentThread).toHaveBeenCalledWith(
+      'main',
+      'thread-fresh',
+      'codex_local',
+    );
+  });
+
   it('honors requestedRuntime over an existing local thread when launching a queued job', async () => {
     const harness = buildHarness({
       runContainerAgent: vi.fn(async (_group, input) => {
@@ -231,7 +271,7 @@ describe('runtime orchestration service', () => {
 
     const logFile = 'C:\\logs\\runtime-job.log';
     const harness = buildHarness({
-      runContainerAgent: vi.fn(async (_group, input, _onProcess, onOutput) => {
+      runContainerAgent: vi.fn(async (_group, _input, _onProcess, onOutput) => {
         markRunning?.();
         await onOutput?.({
           status: 'success' as const,
@@ -730,5 +770,107 @@ describe('runtime orchestration service', () => {
     expect(reconciled?.errorText).toContain(
       'lost its live runner before producing output',
     );
+  });
+
+  it('reconciles a running job that never attached to a live runner', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-30T00:01:00.000Z'));
+    const harness = buildHarness();
+    harness.runtimeJobs.push({
+      groupJid: 'tg:main',
+      active: true,
+      idleWaiting: false,
+      isTaskContainer: true,
+      runningTaskId: 'job-pre-spawn',
+      pendingMessages: false,
+      pendingTaskCount: 0,
+      containerName: null,
+      groupFolder: 'main',
+      retryCount: 0,
+    });
+
+    createRuntimeOrchestrationJob({
+      jobId: 'job-pre-spawn',
+      kind: 'create',
+      status: 'running',
+      stopRequested: false,
+      groupFolder: 'main',
+      groupJid: 'tg:main',
+      parentJobId: null,
+      threadId: 'thread-pre-spawn',
+      runtimeRoute: 'cloud_allowed',
+      requestedRuntime: null,
+      selectedRuntime: 'codex_local',
+      promptPreview: 'pre-spawn',
+      latestOutputText: null,
+      finalOutputText: null,
+      errorText: null,
+      logFile: null,
+      sourceSystem: 'nanoclaw',
+      actorType: 'operator',
+      actorId: 'tg:operator',
+      correlationId: 'corr-pre-spawn',
+      createdAt: '2026-03-30T00:00:00.000Z',
+      startedAt: '2026-03-30T00:00:01.000Z',
+      finishedAt: null,
+      updatedAt: '2026-03-30T00:00:01.000Z',
+    });
+
+    const reconciled = harness.service.getJob('job-pre-spawn');
+    expect(reconciled?.status).toBe('failed');
+    expect(reconciled?.errorText).toContain(
+      'never attached to a live runner before producing output',
+    );
+  });
+
+  it('does not report live stop acceptance when a running job has no live runner yet', async () => {
+    createRuntimeOrchestrationJob({
+      jobId: 'job-pre-spawn-stop',
+      kind: 'create',
+      status: 'running',
+      stopRequested: false,
+      groupFolder: 'main',
+      groupJid: 'tg:main',
+      parentJobId: null,
+      threadId: 'thread-pre-spawn-stop',
+      runtimeRoute: 'cloud_allowed',
+      requestedRuntime: null,
+      selectedRuntime: 'codex_local',
+      promptPreview: 'pre-spawn stop',
+      latestOutputText: null,
+      finalOutputText: null,
+      errorText: null,
+      logFile: null,
+      sourceSystem: 'nanoclaw',
+      actorType: null,
+      actorId: null,
+      correlationId: null,
+      createdAt: '2026-03-30T00:00:00.000Z',
+      startedAt: '2026-03-30T00:00:05.000Z',
+      finishedAt: null,
+      updatedAt: '2026-03-30T00:00:05.000Z',
+    });
+
+    const harness = buildHarness();
+    harness.runtimeJobs.push({
+      groupJid: 'tg:main',
+      active: true,
+      idleWaiting: false,
+      isTaskContainer: true,
+      runningTaskId: 'job-pre-spawn-stop',
+      pendingMessages: false,
+      pendingTaskCount: 0,
+      containerName: null,
+      groupFolder: 'main',
+      retryCount: 0,
+    });
+
+    const result = await harness.service.stopJob({
+      jobId: 'job-pre-spawn-stop',
+      source: { system: 'nanoclaw' },
+    });
+
+    expect(result.liveStopAccepted).toBe(false);
+    expect(harness.requestStop).not.toHaveBeenCalled();
   });
 });

@@ -61,7 +61,6 @@ import {
   storeMessage,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
-import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
 import { findChannel, formatMessages, formatOutbound } from './router.js';
 import {
@@ -94,6 +93,7 @@ import {
   RegisteredGroup,
   type RuntimeBackendAuthState,
   type RuntimeBackendLocalExecutionState,
+  type RuntimeBackendStatusSnapshot,
 } from './types.js';
 import { logger } from './logger.js';
 
@@ -344,6 +344,18 @@ function getRuntimeStatusSnapshot() {
   });
 }
 
+const ORCHESTRATION_DISPATCH_SURFACE = {
+  metaRoute: '/meta',
+  statusRoute: '/status',
+  jobsCollectionRoute: '/jobs',
+  jobItemRoute: '/jobs/:jobId',
+  jobFollowUpRoute: '/jobs/:jobId/followup',
+  jobLogsRoute: '/jobs/:jobId/logs',
+  jobStopRoute: '/jobs/:jobId/stop',
+  followUpsCollectionRoute: '/followups',
+  groupsCollectionRoute: '/groups/:groupFolder',
+} as const;
+
 function getOrchestrationHttpMeta() {
   const snapshot = getRuntimeStatusSnapshot();
   const containerExecutionCapable = isContainerRuntimeExecutionCapable(
@@ -391,6 +403,32 @@ function getOrchestrationHttpMeta() {
     authState,
     localExecutionDetail,
     operatorGuidance,
+  };
+}
+
+function getOrchestrationHttpStatus(): RuntimeBackendStatusSnapshot {
+  const runtime = getRuntimeStatusSnapshot();
+  const meta = getOrchestrationHttpMeta();
+
+  return {
+    ...meta,
+    dispatchSurface: ORCHESTRATION_DISPATCH_SURFACE,
+    runtime: {
+      defaultRuntime: runtime.defaultRuntime,
+      fallbackRuntime: runtime.fallbackRuntime,
+      codexLocalEnabled: runtime.codexLocalEnabled,
+      codexLocalModel: runtime.codexLocalModel,
+      codexLocalReady: runtime.codexLocalReady,
+      hostCodexAuthPresent: runtime.hostCodexAuthPresent,
+      openAiModelFallback: runtime.openAiModelFallback,
+      openAiApiKeyPresent: runtime.openAiApiKeyPresent,
+      openAiCloudReady: runtime.openAiCloudReady,
+      openAiBaseUrl: runtime.openAiBaseUrl,
+      activeThreadCount: runtime.activeThreadCount,
+      activeJobCount: runtime.activeJobCount,
+      containerRuntimeName: runtime.containerRuntimeName,
+      containerRuntimeStatus: runtime.containerRuntimeStatus,
+    },
   };
 }
 
@@ -760,6 +798,7 @@ async function main(): Promise<void> {
       port: ORCHESTRATION_HTTP_PORT,
       service: orchestrationService,
       getMeta: getOrchestrationHttpMeta,
+      getStatus: getOrchestrationHttpStatus,
       routePrompt: routeCompanionPrompt,
       registerGroup(request) {
         return ensureLoopbackRegisteredGroup(

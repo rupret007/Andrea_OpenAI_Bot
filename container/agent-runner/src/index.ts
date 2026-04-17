@@ -265,15 +265,23 @@ function resolveOpenAiCloudModel(): string {
   return (process.env.OPENAI_MODEL_FALLBACK || 'gpt-5.4').trim() || 'gpt-5.4';
 }
 
+function resolveCodexHomePath(): string {
+  return process.env.CODEX_HOME || '/home/node/.codex';
+}
+
+function hasSeededCodexAuthMaterial(): boolean {
+  const codexHome = resolveCodexHomePath();
+  return ['auth.json', 'cap_sid'].some((file) =>
+    fs.existsSync(path.join(codexHome, file)),
+  );
+}
+
 function hasCodexLocalCredentialMaterial(): boolean {
   if (process.env.OPENAI_API_KEY?.trim()) {
     return true;
   }
 
-  const codexHome = process.env.CODEX_HOME || '/home/node/.codex';
-  return ['auth.json', 'cap_sid'].some((file) =>
-    fs.existsSync(path.join(codexHome, file)),
-  );
+  return hasSeededCodexAuthMaterial();
 }
 
 function hasOpenAiCloudCredentials(): boolean {
@@ -398,6 +406,10 @@ function buildCodexConfigArgs(
 }
 
 async function ensureCodexAuthenticated(): Promise<void> {
+  if (hasSeededCodexAuthMaterial()) {
+    return;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return;
 
@@ -407,7 +419,7 @@ async function ensureCodexAuthenticated(): Promise<void> {
       env: {
         ...process.env,
         HOME: process.env.HOME || '/home/node',
-        CODEX_HOME: process.env.CODEX_HOME || '/home/node/.codex',
+        CODEX_HOME: resolveCodexHomePath(),
       },
     });
     let stderr = '';

@@ -45,9 +45,16 @@ export function seedCodexHomeFromHost(
     if (!fs.existsSync(sourcePath)) continue;
 
     const targetPath = path.join(targetCodexHome, file);
-    const shouldCopy =
-      !fs.existsSync(targetPath) ||
-      fs.statSync(sourcePath).mtimeMs > fs.statSync(targetPath).mtimeMs;
+    let shouldCopy = !fs.existsSync(targetPath);
+    if (!shouldCopy) {
+      try {
+        const sourceBuffer = fs.readFileSync(sourcePath);
+        const targetBuffer = fs.readFileSync(targetPath);
+        shouldCopy = !sourceBuffer.equals(targetBuffer);
+      } catch {
+        shouldCopy = true;
+      }
+    }
 
     if (!shouldCopy) continue;
 

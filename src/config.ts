@@ -15,6 +15,7 @@ const envConfig = readEnvFile([
   'CODEX_LOCAL_MODEL',
   'CONTAINER_RUNTIME',
   'CONTAINER_RUNTIME_BIN',
+  'CONTAINER_PRESPAWN_TIMEOUT',
   'OPENAI_MODEL_COMPLEX',
   'OPENAI_MODEL_FALLBACK',
   'OPENAI_MODEL_SIMPLE',
@@ -108,6 +109,12 @@ export const CONTAINER_RUNTIME = normalizeConfiguredContainerRuntime(
 );
 export const CONTAINER_TIMEOUT = parseInt(
   process.env.CONTAINER_TIMEOUT || '1800000',
+  10,
+);
+export const CONTAINER_PRESPAWN_TIMEOUT = parseInt(
+  process.env.CONTAINER_PRESPAWN_TIMEOUT ||
+    envConfig.CONTAINER_PRESPAWN_TIMEOUT ||
+    '30000',
   10,
 );
 export const CONTAINER_INITIAL_OUTPUT_TIMEOUT = parseInt(

@@ -16,8 +16,14 @@ import {
   type RuntimeBackendJob,
   type RuntimeBackendJobList,
   type RuntimeBackendMeta,
+  type RuntimeBackendStatusSnapshot,
   type RuntimeOrchestrationJob,
 } from './types.js';
+import {
+  buildRuntimeHealthMetadata,
+  emitAndreaPlatformRuntimeHealth,
+  mapRuntimeStatusToHealthSeverity,
+} from './platform-bridge.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 
@@ -43,6 +49,7 @@ export interface OrchestrationHttpServerOptions {
   port: number;
   service: RuntimeOrchestrationService;
   getMeta(): RuntimeBackendMeta;
+  getStatus(): RuntimeBackendStatusSnapshot | Promise<RuntimeBackendStatusSnapshot>;
   routePrompt(request: RoutePromptRequest): Promise<RoutePromptResult>;
   registerGroup(
     request: LoopbackGroupRegistrationRequest,
@@ -400,6 +407,20 @@ async function handleRequest(
     return;
   }
 
+  if (pathname === '/status') {
+    if (method !== 'GET') {
+      throw new HttpRouteError(
+        405,
+        'method_not_allowed',
+        'Method not allowed for /status.',
+        'GET',
+      );
+    }
+
+    writeJson(res, 200, await options.getStatus());
+    return;
+  }
+
   if (pathname === '/route') {
     if (method !== 'POST') {
       throw new HttpRouteError(
@@ -714,6 +735,21 @@ export async function startOrchestrationHttpServer(
   const address = server.address();
   const actualPort =
     address && typeof address === 'object' ? address.port : options.port;
+
+  const status = await options.getStatus();
+  void emitAndreaPlatformRuntimeHealth({
+    severity: mapRuntimeStatusToHealthSeverity(status),
+    summary: status.ready
+      ? 'Andrea OpenAI orchestration HTTP bridge is listening on loopback.'
+      : 'Andrea OpenAI orchestration HTTP bridge is available but not fully ready.',
+    detail: `http://${normalizedHost}:${actualPort}`,
+    metadata: {
+      ...buildRuntimeHealthMetadata(status),
+      transport: 'http',
+      loopbackHost: normalizedHost,
+      loopbackPort: String(actualPort),
+    },
+  });
 
   return {
     host: normalizedHost,

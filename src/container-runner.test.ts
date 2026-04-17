@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
+const oneCliState = vi.hoisted(() => ({
+  applyContainerConfig: vi.fn().mockResolvedValue(true),
+  createAgent: vi.fn().mockResolvedValue({ id: 'test' }),
+  ensureAgent: vi
+    .fn()
+    .mockResolvedValue({ name: 'test', identifier: 'test', created: true }),
+}));
+
 // Sentinel markers must match container-runner.ts
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
@@ -14,6 +22,7 @@ vi.mock('./config.js', async () => {
     ...actual,
     CONTAINER_IMAGE: 'andrea-openai-agent:latest',
     CONTAINER_MAX_OUTPUT_SIZE: 10485760,
+    CONTAINER_PRESPAWN_TIMEOUT: 30000,
     CONTAINER_TIMEOUT: 1800000, // 30min
     DATA_DIR: '/tmp/nanoclaw-test-data',
     GROUPS_DIR: '/tmp/nanoclaw-test-groups',
@@ -78,11 +87,9 @@ vi.mock('./container-runtime.js', async () => {
 // Mock OneCLI SDK
 vi.mock('@onecli-sh/sdk', () => ({
   OneCLI: class {
-    applyContainerConfig = vi.fn().mockResolvedValue(true);
-    createAgent = vi.fn().mockResolvedValue({ id: 'test' });
-    ensureAgent = vi
-      .fn()
-      .mockResolvedValue({ name: 'test', identifier: 'test', created: true });
+    applyContainerConfig = oneCliState.applyContainerConfig;
+    createAgent = oneCliState.createAgent;
+    ensureAgent = oneCliState.ensureAgent;
   },
 }));
 
@@ -150,6 +157,11 @@ describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeProc = createFakeProcess();
+    oneCliState.applyContainerConfig.mockReset().mockResolvedValue(true);
+    oneCliState.createAgent.mockReset().mockResolvedValue({ id: 'test' });
+    oneCliState.ensureAgent
+      .mockReset()
+      .mockResolvedValue({ name: 'test', identifier: 'test', created: true });
   });
 
   afterEach(() => {
@@ -306,5 +318,54 @@ describe('container-runner timeout behavior', () => {
     expect(result.runtime).toBe('openai_cloud');
     expect(result.error).toContain('OPENAI_API_KEY');
     expect(containerRuntime.stopContainer).not.toHaveBeenCalled();
+  });
+
+  it('does not hang when the streaming output handler rejects', async () => {
+    const containerRuntime = await import('./container-runtime.js');
+    vi.mocked(containerRuntime.stopContainer).mockClear();
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      vi.fn(async () => {
+        throw new Error('output handler blew up');
+      }),
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'streamed result',
+      newSessionId: 'session-stream',
+      runtime: 'codex_local',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('Streaming output handler failed');
+    expect(result.error).toContain('output handler blew up');
+    expect(containerRuntime.stopContainer).toHaveBeenCalled();
+  });
+
+  it('fails cleanly when startup prep hangs before spawn', async () => {
+    oneCliState.applyContainerConfig.mockImplementationOnce(
+      () => new Promise<boolean>(() => {}),
+    );
+    const onProcess = vi.fn();
+
+    const resultPromise = runContainerAgent(testGroup, testInput, onProcess);
+
+    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('error');
+    expect(result.error).toContain(
+      'Container startup prep exceeded 30000ms before spawn.',
+    );
+    expect(onProcess).not.toHaveBeenCalled();
   });
 });

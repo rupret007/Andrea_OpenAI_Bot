@@ -22,8 +22,20 @@ import type {
   AgentThreadState,
   RegisteredGroup,
   RuntimeBackendJob,
-  RuntimeOrchestrationJob,
+  RuntimeBackendStatusSnapshot,
 } from './types.js';
+
+const dispatchSurface = {
+  metaRoute: '/meta',
+  statusRoute: '/status',
+  jobsCollectionRoute: '/jobs',
+  jobItemRoute: '/jobs/:jobId',
+  jobFollowUpRoute: '/jobs/:jobId/followup',
+  jobLogsRoute: '/jobs/:jobId/logs',
+  jobStopRoute: '/jobs/:jobId/stop',
+  followUpsCollectionRoute: '/followups',
+  groupsCollectionRoute: '/groups/:groupFolder',
+} as const;
 
 interface TestHarness {
   baseUrl: string;
@@ -116,7 +128,7 @@ async function buildHarness(
 
   const deps: RuntimeOrchestrationServiceDependencies = {
     assistantName: 'Andrea',
-    enqueueJob(groupJid, jobId, fn) {
+    enqueueJob(_groupJid, jobId, fn) {
       queuedTasks.set(jobId, fn);
     },
     getAvailableGroups() {
@@ -182,6 +194,42 @@ async function buildHarness(
           meta.localExecutionDetail ??
           'Codex local execution is authenticated and the container runtime is ready.',
         operatorGuidance: meta.operatorGuidance ?? null,
+      };
+    },
+    getStatus(): RuntimeBackendStatusSnapshot {
+      const base = {
+        backend: 'andrea_openai' as const,
+        transport: 'http' as const,
+        enabled: true as const,
+        version: meta.version ?? '1.2.42',
+        ready: meta.ready ?? true,
+        localExecutionState:
+          meta.localExecutionState ?? 'available_authenticated',
+        authState: meta.authState ?? 'authenticated',
+        localExecutionDetail:
+          meta.localExecutionDetail ??
+          'Codex local execution is authenticated and the container runtime is ready.',
+        operatorGuidance: meta.operatorGuidance ?? null,
+      };
+      return {
+        ...base,
+        dispatchSurface,
+        runtime: {
+          defaultRuntime: 'codex_local',
+          fallbackRuntime: 'openai_cloud',
+          codexLocalEnabled: true,
+          codexLocalModel: 'gpt-5.4-mini',
+          codexLocalReady: base.ready,
+          hostCodexAuthPresent: base.authState === 'authenticated',
+          openAiModelFallback: 'gpt-5.4',
+          openAiApiKeyPresent: base.ready,
+          openAiCloudReady: base.ready,
+          openAiBaseUrl: null,
+          activeThreadCount: 1,
+          activeJobCount: 2,
+          containerRuntimeName: 'podman',
+          containerRuntimeStatus: 'running',
+        },
       };
     },
     async routePrompt(request) {
@@ -267,6 +315,24 @@ describe('orchestration http server', () => {
       localExecutionDetail:
         'Codex local execution is authenticated and the container runtime is ready.',
       operatorGuidance: null,
+    });
+  });
+
+  it('returns a platform-ready status snapshot from /status', async () => {
+    harness = await buildHarness({}, { ready: true, version: '1.2.42' });
+
+    const response = await fetch(`${harness.baseUrl}/status`);
+    const body = (await response.json()) as RuntimeBackendStatusSnapshot;
+
+    expect(response.status).toBe(200);
+    expect(body.backend).toBe('andrea_openai');
+    expect(body.dispatchSurface).toEqual(dispatchSurface);
+    expect(body.runtime).toMatchObject({
+      defaultRuntime: 'codex_local',
+      fallbackRuntime: 'openai_cloud',
+      activeJobCount: 2,
+      activeThreadCount: 1,
+      containerRuntimeStatus: 'running',
     });
   });
 
