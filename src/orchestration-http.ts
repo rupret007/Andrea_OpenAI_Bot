@@ -49,7 +49,9 @@ export interface OrchestrationHttpServerOptions {
   port: number;
   service: RuntimeOrchestrationService;
   getMeta(): RuntimeBackendMeta;
-  getStatus(): RuntimeBackendStatusSnapshot | Promise<RuntimeBackendStatusSnapshot>;
+  getStatus():
+    | RuntimeBackendStatusSnapshot
+    | Promise<RuntimeBackendStatusSnapshot>;
   routePrompt(request: RoutePromptRequest): Promise<RoutePromptResult>;
   registerGroup(
     request: LoopbackGroupRegistrationRequest,

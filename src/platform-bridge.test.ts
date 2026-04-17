@@ -10,19 +10,18 @@ describe('platform runtime bridge', () => {
   });
 
   it('posts runtime health and job state when the bridge is enabled', async () => {
-    vi.stubEnv(
-      'ANDREA_PLATFORM_RUNTIME_GATEWAY_URL',
-      'http://127.0.0.1:4402/',
-    );
+    vi.stubEnv('ANDREA_PLATFORM_RUNTIME_GATEWAY_URL', 'http://127.0.0.1:4402/');
 
     const calls: Array<{ url: string; body: unknown }> = [];
-    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      calls.push({
-        url: String(input),
-        body: init?.body,
-      });
-      return new Response(null, { status: 202 });
-    });
+    const fetchImpl = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          body: init?.body,
+        });
+        return new Response(null, { status: 202 });
+      },
+    );
     vi.stubGlobal('fetch', fetchImpl as unknown as typeof fetch);
 
     const bridge = await import('./platform-bridge.js');

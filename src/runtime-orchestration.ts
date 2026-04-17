@@ -254,11 +254,10 @@ function planRuntimeExecution(
     shouldReuseExistingThread(existingThread, preferredRuntime)
       ? existingThread.thread_id
       : null;
-  const sessionId =
-    request.skipStoredThreadLookup
-      ? undefined
-      : reusedThreadId ||
-        (existingThread ? undefined : deps.getSession(request.group.folder));
+  const sessionId = request.skipStoredThreadLookup
+    ? undefined
+    : reusedThreadId ||
+      (existingThread ? undefined : deps.getSession(request.group.folder));
 
   return {
     existingThread,
@@ -628,17 +627,17 @@ async function runOrchestrationJob(
   };
 
   try {
-        const result = await executeRuntimeTurn(deps, {
-          group: executionTarget.group,
-          groupJid: executionTarget.jid,
-          chatJid: executionTarget.jid,
-          prompt,
-          requestPolicy,
-          routeHint,
-          requestedRuntime,
-          existingThreadOverride: executionTarget.threadCandidate,
-          skipStoredThreadLookup: currentJob.kind === 'create',
-          onOutput: async (output) => {
+    const result = await executeRuntimeTurn(deps, {
+      group: executionTarget.group,
+      groupJid: executionTarget.jid,
+      chatJid: executionTarget.jid,
+      prompt,
+      requestPolicy,
+      routeHint,
+      requestedRuntime,
+      existingThreadOverride: executionTarget.threadCandidate,
+      skipStoredThreadLookup: currentJob.kind === 'create',
+      onOutput: async (output) => {
         if (output.result !== null) {
           latestOutputText = output.result;
           scheduleClose();
@@ -658,7 +657,10 @@ async function runOrchestrationJob(
           errorText:
             output.status === 'error' ? output.error || null : undefined,
         });
-        mirrorPlatformJobState(jobId, 'Runtime orchestration job produced output.');
+        mirrorPlatformJobState(
+          jobId,
+          'Runtime orchestration job produced output.',
+        );
         if (output.result) {
           mirrorPlatformJobLog(jobId, output.result, output.logFile);
         } else if (output.error) {
@@ -804,8 +806,14 @@ export function createRuntimeOrchestrationService(
             finishedAt: timestamp,
             errorText: 'Stop requested before execution started.',
           });
-          mirrorPlatformJobState(jobId, 'Stop requested before execution started.');
-          mirrorPlatformJobLog(jobId, 'Stop requested before execution started.');
+          mirrorPlatformJobState(
+            jobId,
+            'Stop requested before execution started.',
+          );
+          mirrorPlatformJobLog(
+            jobId,
+            'Stop requested before execution started.',
+          );
           return;
         }
 
@@ -864,8 +872,14 @@ export function createRuntimeOrchestrationService(
             finishedAt: timestamp,
             errorText: 'Stop requested before execution started.',
           });
-          mirrorPlatformJobState(jobId, 'Stop requested before execution started.');
-          mirrorPlatformJobLog(jobId, 'Stop requested before execution started.');
+          mirrorPlatformJobState(
+            jobId,
+            'Stop requested before execution started.',
+          );
+          mirrorPlatformJobLog(
+            jobId,
+            'Stop requested before execution started.',
+          );
           return;
         }
 
@@ -938,8 +952,14 @@ export function createRuntimeOrchestrationService(
           finishedAt: timestamp,
           errorText: 'Stop requested before execution started.',
         });
-        mirrorPlatformJobState(job.jobId, 'Stop requested before execution started.');
-        mirrorPlatformJobLog(job.jobId, 'Stop requested before execution started.');
+        mirrorPlatformJobState(
+          job.jobId,
+          'Stop requested before execution started.',
+        );
+        mirrorPlatformJobLog(
+          job.jobId,
+          'Stop requested before execution started.',
+        );
       } else if (job.status === 'running') {
         const activeJob = deps
           .getRuntimeJobs()
@@ -954,7 +974,10 @@ export function createRuntimeOrchestrationService(
           stopRequested: true,
           updatedAt: timestamp,
         });
-        mirrorPlatformJobState(job.jobId, 'Stop requested while runtime job was still running.');
+        mirrorPlatformJobState(
+          job.jobId,
+          'Stop requested while runtime job was still running.',
+        );
         mirrorPlatformJobLog(
           job.jobId,
           'Stop requested while runtime job was still running.',

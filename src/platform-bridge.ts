@@ -6,7 +6,9 @@ import type {
 
 const RUNTIME_GATEWAY_BASE_URL = (
   process.env.ANDREA_PLATFORM_RUNTIME_GATEWAY_URL || ''
-).trim().replace(/\/+$/, '');
+)
+  .trim()
+  .replace(/\/+$/, '');
 
 type HealthSeverity =
   | 'healthy'
@@ -20,7 +22,10 @@ function runtimeGatewayRoute(path: string): string | null {
   return `${RUNTIME_GATEWAY_BASE_URL}${path}`;
 }
 
-async function postRuntimeGateway(path: string, payload: object): Promise<void> {
+async function postRuntimeGateway(
+  path: string,
+  payload: object,
+): Promise<void> {
   const url = runtimeGatewayRoute(path);
   if (!url) return;
 
@@ -56,14 +61,12 @@ export function isAndreaPlatformRuntimeBridgeEnabled(): boolean {
   return Boolean(RUNTIME_GATEWAY_BASE_URL);
 }
 
-export async function emitAndreaPlatformRuntimeHealth(
-  input: {
-    severity: HealthSeverity;
-    summary: string;
-    detail?: string | null;
-    metadata?: Record<string, string>;
-  },
-): Promise<void> {
+export async function emitAndreaPlatformRuntimeHealth(input: {
+  severity: HealthSeverity;
+  summary: string;
+  detail?: string | null;
+  metadata?: Record<string, string>;
+}): Promise<void> {
   await postRuntimeGateway('/system/health', {
     source: 'andrea_openai_bot',
     component: 'andrea.runtime',
