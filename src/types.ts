@@ -248,6 +248,9 @@ export interface RuntimeBackendRuntimeSnapshot {
   codexLocalModel: string | null;
   codexLocalReady: boolean;
   hostCodexAuthPresent: boolean;
+  openAiModelSimple: string;
+  openAiModelStandard: string;
+  openAiModelComplex: string;
   openAiModelFallback: string;
   openAiApiKeyPresent: boolean;
   openAiCloudReady: boolean;

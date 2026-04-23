@@ -3,7 +3,10 @@ import {
   AGENT_RUNTIME_FALLBACK,
   CODEX_LOCAL_ENABLED,
   CODEX_LOCAL_MODEL,
+  OPENAI_MODEL_COMPLEX,
   OPENAI_MODEL_FALLBACK,
+  OPENAI_MODEL_SIMPLE,
+  OPENAI_MODEL_STANDARD,
 } from './config.js';
 import { hasHostCodexAuthMaterial } from './codex-home.js';
 import type { ContainerRuntimeStatus } from './container-runtime.js';
@@ -29,6 +32,9 @@ export interface AgentRuntimeStatusSnapshot {
   codexLocalModel: string | null;
   codexLocalReady: boolean;
   hostCodexAuthPresent: boolean;
+  openAiModelSimple: string;
+  openAiModelStandard: string;
+  openAiModelComplex: string;
   openAiModelFallback: string;
   openAiApiKeyPresent: boolean;
   openAiCloudReady: boolean;
@@ -107,6 +113,9 @@ export function getAgentRuntimeStatusSnapshot(params: {
     codexLocalReady:
       CODEX_LOCAL_ENABLED && (openAiApiKeyPresent || hostCodexAuthPresent),
     hostCodexAuthPresent,
+    openAiModelSimple: OPENAI_MODEL_SIMPLE,
+    openAiModelStandard: OPENAI_MODEL_STANDARD,
+    openAiModelComplex: OPENAI_MODEL_COMPLEX,
     openAiModelFallback: OPENAI_MODEL_FALLBACK,
     openAiApiKeyPresent,
     openAiCloudReady: openAiApiKeyPresent,
@@ -131,7 +140,10 @@ export function formatAgentRuntimeStatusMessage(
     snapshot.codexLocalModel
       ? `- Codex local model override: ${snapshot.codexLocalModel}`
       : null,
-    `- OpenAI cloud model: ${snapshot.openAiModelFallback}`,
+    `- OpenAI simple model: ${snapshot.openAiModelSimple || snapshot.openAiModelFallback}`,
+    `- OpenAI standard model: ${snapshot.openAiModelStandard || snapshot.openAiModelFallback}`,
+    `- OpenAI complex model: ${snapshot.openAiModelComplex || snapshot.openAiModelFallback}`,
+    `- OpenAI fallback model: ${snapshot.openAiModelFallback}`,
     `- OpenAI key present: ${snapshot.openAiApiKeyPresent ? 'yes' : 'no'}`,
     `- OpenAI cloud readiness: ${snapshot.openAiCloudReady ? 'ready' : 'missing credentials'}`,
     snapshot.openAiBaseUrl
