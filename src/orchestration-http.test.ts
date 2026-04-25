@@ -414,11 +414,13 @@ describe('orchestration http server', () => {
       body: JSON.stringify({
         groupFolder: 'main',
         prompt: 'Please summarize the latest state.',
+        routeHint: 'cloud_allowed',
         requestedRuntime: 'openai_cloud',
         source: {
           system: 'nanobot',
           actorType: 'operator',
           actorId: 'user-1',
+          correlationId: 'corr-http-job',
         },
       }),
     });
@@ -434,6 +436,8 @@ describe('orchestration http server', () => {
     expect(body.job.sourceSystem).toBe('nanobot');
     expect(body.job.actorType).toBe('operator');
     expect(body.job.actorId).toBe('user-1');
+    expect(body.job.correlationId).toBe('corr-http-job');
+    expect(body.job.runtimeRoute).toBe('cloud_allowed');
     expect(body.job.requestedRuntime).toBe('openai_cloud');
   });
 

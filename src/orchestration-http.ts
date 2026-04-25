@@ -13,6 +13,7 @@ import {
   type RoutePromptRequest,
   type RoutePromptResult,
   type OrchestrationSource,
+  type RuntimeRoute,
   type RuntimeBackendJob,
   type RuntimeBackendJobList,
   type RuntimeBackendMeta,
@@ -283,6 +284,25 @@ function optionalAgentRuntimeName(
   );
 }
 
+function optionalRuntimeRoute(
+  raw: unknown,
+  fieldName: string,
+): RuntimeRoute | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (
+    raw === 'local_required' ||
+    raw === 'cloud_allowed' ||
+    raw === 'cloud_preferred'
+  ) {
+    return raw;
+  }
+  throw new HttpRouteError(
+    400,
+    'validation_error',
+    `${fieldName} must be local_required, cloud_allowed, or cloud_preferred when provided.`,
+  );
+}
+
 function rejectUnexpectedFields(
   body: Record<string, unknown>,
   allowedFields: string[],
@@ -516,6 +536,7 @@ async function handleRequest(
       const job = await options.service.createJob({
         groupFolder: requireNonEmptyString(body.groupFolder, 'groupFolder'),
         prompt: requireNonEmptyString(body.prompt, 'prompt'),
+        routeHint: optionalRuntimeRoute(body.routeHint, 'routeHint'),
         requestedRuntime: optionalAgentRuntimeName(
           body.requestedRuntime,
           'requestedRuntime',

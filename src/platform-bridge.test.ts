@@ -89,6 +89,7 @@ describe('platform runtime bridge', () => {
     });
     expect(secondBody).toMatchObject({
       source: 'andrea_openai_bot',
+      correlation_id: 'corr-1',
       backend: 'andrea_openai',
       lane_id: 'andrea_runtime',
       job_id: 'job-1',
@@ -101,12 +102,18 @@ describe('platform runtime bridge', () => {
         runtimeRoute: 'cloud_allowed',
         kind: 'create',
         sourceSystem: 'andrea',
+        actorType: 'user',
+        actorId: 'user-1',
+        correlationId: 'corr-1',
+        requestedRuntime: 'openai_cloud',
+        selectedRuntime: 'openai_cloud',
       },
     });
 
     const thirdBody = JSON.parse(String(calls[2]?.body ?? '{}'));
     expect(thirdBody).toMatchObject({
       source: 'andrea_openai_bot',
+      correlation_id: 'corr-1',
       backend: 'andrea_openai',
       lane_id: 'andrea_runtime',
       job_id: 'job-1',
@@ -115,7 +122,13 @@ describe('platform runtime bridge', () => {
       metadata: {
         runtimeRoute: 'cloud_allowed',
         kind: 'create',
+        sourceSystem: 'andrea',
+        actorType: 'user',
+        actorId: 'user-1',
+        correlationId: 'corr-1',
+        requestedRuntime: 'openai_cloud',
         selectedRuntime: 'openai_cloud',
+        logFile: 'C:\\logs\\runtime-job.log',
       },
     });
   });

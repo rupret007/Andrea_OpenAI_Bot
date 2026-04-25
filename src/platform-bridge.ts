@@ -148,6 +148,7 @@ export async function emitAndreaPlatformJobState(
 ): Promise<void> {
   await postRuntimeGateway('/job/state', {
     source: 'andrea_openai_bot',
+    ...(job.correlationId ? { correlation_id: job.correlationId } : {}),
     backend: 'andrea_openai',
     lane_id: 'andrea_runtime',
     job_id: job.jobId,
@@ -161,6 +162,11 @@ export async function emitAndreaPlatformJobState(
       runtimeRoute: job.runtimeRoute,
       ...(job.kind ? { kind: job.kind } : {}),
       ...(job.sourceSystem ? { sourceSystem: job.sourceSystem } : {}),
+      ...(job.actorType ? { actorType: job.actorType } : {}),
+      ...(job.actorId ? { actorId: job.actorId } : {}),
+      ...(job.correlationId ? { correlationId: job.correlationId } : {}),
+      ...(job.requestedRuntime ? { requestedRuntime: job.requestedRuntime } : {}),
+      ...(job.selectedRuntime ? { selectedRuntime: job.selectedRuntime } : {}),
     },
   });
 }
@@ -172,6 +178,7 @@ export async function emitAndreaPlatformJobLog(
 ): Promise<void> {
   await postRuntimeGateway('/job/log', {
     source: 'andrea_openai_bot',
+    ...(job.correlationId ? { correlation_id: job.correlationId } : {}),
     backend: 'andrea_openai',
     lane_id: 'andrea_runtime',
     job_id: job.jobId,
@@ -180,7 +187,13 @@ export async function emitAndreaPlatformJobLog(
     metadata: {
       runtimeRoute: job.runtimeRoute,
       ...(job.kind ? { kind: job.kind } : {}),
+      ...(job.sourceSystem ? { sourceSystem: job.sourceSystem } : {}),
+      ...(job.actorType ? { actorType: job.actorType } : {}),
+      ...(job.actorId ? { actorId: job.actorId } : {}),
+      ...(job.correlationId ? { correlationId: job.correlationId } : {}),
+      ...(job.requestedRuntime ? { requestedRuntime: job.requestedRuntime } : {}),
       ...(job.selectedRuntime ? { selectedRuntime: job.selectedRuntime } : {}),
+      ...(logPath ? { logFile: logPath } : {}),
     },
   });
 }
