@@ -165,7 +165,9 @@ export async function emitAndreaPlatformJobState(
       ...(job.actorType ? { actorType: job.actorType } : {}),
       ...(job.actorId ? { actorId: job.actorId } : {}),
       ...(job.correlationId ? { correlationId: job.correlationId } : {}),
-      ...(job.requestedRuntime ? { requestedRuntime: job.requestedRuntime } : {}),
+      ...(job.requestedRuntime
+        ? { requestedRuntime: job.requestedRuntime }
+        : {}),
       ...(job.selectedRuntime ? { selectedRuntime: job.selectedRuntime } : {}),
     },
   });
@@ -191,7 +193,9 @@ export async function emitAndreaPlatformJobLog(
       ...(job.actorType ? { actorType: job.actorType } : {}),
       ...(job.actorId ? { actorId: job.actorId } : {}),
       ...(job.correlationId ? { correlationId: job.correlationId } : {}),
-      ...(job.requestedRuntime ? { requestedRuntime: job.requestedRuntime } : {}),
+      ...(job.requestedRuntime
+        ? { requestedRuntime: job.requestedRuntime }
+        : {}),
       ...(job.selectedRuntime ? { selectedRuntime: job.selectedRuntime } : {}),
       ...(logPath ? { logFile: logPath } : {}),
     },
